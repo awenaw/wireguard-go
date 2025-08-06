@@ -1,0 +1,14 @@
+{
+    "go.toolsManagement.checkForUpdates": "local",
+    "go.alternateTools": {
+        "gopls": "/Users/h/go/bin/gopls"
+    },
+    "go.useLanguageServer": true,
+    "go.languageServerExperimentalFeatures": {
+        "diagnostics": true,
+        "documentLink": true
+    },
+    "go.buildOnSave": "off",
+    "go.lintOnSave": "off",
+    "go.vetOnSave": "off"
+}

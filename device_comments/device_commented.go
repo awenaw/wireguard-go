@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package device
+package device_comments
 
 import (
 	"runtime"
