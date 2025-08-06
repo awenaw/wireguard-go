@@ -9,7 +9,13 @@
       "Bash(export PATH=$PATH:/Users/h/go/bin)",
       "Bash(rm:*)",
       "Bash(mkdir:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(find:*)",
+      "Bash(export PATH=$PATH:/Users/hmini/go/bin)",
+      "Bash(echo $PATH)",
+      "Bash(/Users/hmini/go/bin/gopls version)",
+      "Bash(echo $SHELL)",
+      "Bash(source:*)"
     ],
     "deny": []
   }
