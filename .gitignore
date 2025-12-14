@@ -1,1 +1,19 @@
+# 编译产物
 wireguard-go
+wireguard-go-debug
+
+# WireGuard 配置（包含密钥）
+wg_config/*.key
+wg_config/*.conf
+wg_config/*.png
+wg_config/.tun_name
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# 其他
+device_comments/
