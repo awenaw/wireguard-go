@@ -4,15 +4,38 @@
 
 ---
 
+## 🚀 快速开始
+
+### 调试模式（推荐）
+
+必须严格按照以下顺序操作，否则会报错 `No such file or directory`：
+
+1. **启动调试服务器**（终端 1）：
+   ```bash
+   sudo ./wg_config/debug_start.sh
+   # 此时程序会暂停并显示 "API server listening at: 127.0.0.1:2345"
+   # 不要关闭这个终端！
+   ```
+
+2. **连接调试器**（VS Code）：
+   - 按 `F5`（确保选择 "Attach to WireGuard-Go"）。
+   - **关键步骤**：连接成功后，程序依然是暂停状态，必须再次点击调试工具栏的 **"继续/运行"** 按钮（或再按一次 `F5`），让程序真正跑起来。
+
+3. **下发配置**（终端 2）：
+   - 必须等步骤 2 完成，程序开始运行后才能执行。
+   ```bash
+   sudo ./wg_config/debug_config.sh
+   ```
+
+### 普通模式（不调试）
+
+```bash
+# 启动服务端
+sudo ./wg_config/start_server.sh
+
+# 停止服务端
+sudo ./wg_config/stop_server.sh
 ## 📋 环境要求
-
-- macOS 系统
-- Go 语言环境
-- wireguard-tools (`brew install wireguard-tools`)
-- Delve 调试器 (`go install github.com/go-delve/delve/cmd/dlv@latest`)
-- VS Code + Go 扩展
-
----
 
 ## 🚀 快速开始
 
@@ -28,15 +51,26 @@ sudo ./wg_config/stop_server.sh
 
 ### 调试模式
 
-```bash
-# 终端 1 - 启动调试服务器（日志显示在这里）
-./wg_config/debug_start.sh
+### 调试模式
 
-# VS Code - 按 F5 连接，再按 F5 运行
+必须严格按照以下顺序操作，否则会报错 `No such file or directory`：
 
-# 终端 2 - 配置服务端
-sudo ./wg_config/debug_config.sh
-```
+1. **启动调试服务器**（终端 1）：
+   ```bash
+   sudo ./wg_config/debug_start.sh
+   # 此时程序会暂停并显示 "API server listening at: 127.0.0.1:2345"
+   # 不要关闭这个终端！
+   ```
+
+2. **连接调试器**（VS Code）：
+   - 按 `F5`（确保选择 "Attach to WireGuard-Go"）。
+   - **关键步骤**：连接成功后，程序依然是暂停状态，必须再次点击调试工具栏的 **"继续/运行"** 按钮（或再按一次 `F5`），让程序真正跑起来。
+
+3. **下发配置**（终端 2）：
+   - 必须等步骤 2 完成，程序开始运行后才能执行。
+   ```bash
+   sudo ./wg_config/debug_config.sh
+   ```
 
 ---
 
@@ -267,6 +301,7 @@ make
 2. **代理环境变量**：Debian 上使用前记得 `unset all_proxy http_proxy https_proxy`
 3. **macOS TUN 限制**：本机无法直接访问 TUN 接口的 IP，需从外部客户端访问
 4. **Keepalive 干扰**：调试时建议用条件断点过滤 keepalive 包
+5. **报错 `Unable to modify interface`**：这通常是因为您在 VS Code 中连接调试器后忘了按第二次 F5 让程序运行，导致 TUN 设备还没被创建。请确保 `debug_start.sh` 的终端已经开始滚动日志或不再阻塞。
 
 ---
 
