@@ -8,6 +8,12 @@ wg_config/*.conf
 wg_config/*.png
 wg_config/.tun_name
 
+# RDP Wrapper 临时文件与二进制
+wg_config/rdp_files/
+wg_config/RDPWInst.exe
+wg_config/rdpwrap.ini
+wg_config/RDPWrap.zip
+
 # IDE
 .vscode/
 .idea/
