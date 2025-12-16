@@ -463,7 +463,7 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 			rxBytesLen += uint64(len(elem.packet) + MinMessageSize)
 
 			if len(elem.packet) == 0 {
-				device.log.Verbosef("%v - 我进来了 [keepalive] 时间: %s", peer, time.Now().Format("2006-01-02 15:04:05.000"))
+				device.log.Verbosef("%v - 2333我进来了 [keepalive] 时间: %s", peer, time.Now().Format("2006-01-02 15:04:05.000"))
 				continue
 			}
 			dataPacketReceived = true
