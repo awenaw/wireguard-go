@@ -137,6 +137,18 @@ func listenNet(network string, port int) (*net.UDPConn, int, error) {
 	return conn.(*net.UDPConn), uaddr.Port, nil
 }
 
+// Open 开启 UDP 监听。  aw-开荒
+//
+// 参数 uport:
+//   - 如果 > 0: 尝试绑定到指定的固定端口（如 51820）。如果端口被占用，返回错误。
+//   - 如果 == 0: 让操作系统随机分配一个空闲端口（Ephemeral Port）。
+//
+// 返回值:
+//   - fns: 接收函数列表（通常包含 IPv4 和 IPv6 两个接收器）。
+//   - port: 实际绑定的端口号（如果 uport=0，这里返回系统分配的端口）。
+//   - err: 错误信息。
+//
+// 该方法会尝试同时监听 IPv4 和 IPv6。如果系统不支持双栈（如禁用了 IPv6），它会尽可能只监听支持的协议。
 func (s *StdNetBind) Open(uport uint16) ([]ReceiveFunc, uint16, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

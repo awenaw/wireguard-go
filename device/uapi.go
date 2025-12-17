@@ -163,6 +163,9 @@ func (device *Device) IpcSetOperation(r io.Reader) (err error) {
 			return ipcErrorf(ipc.IpcErrorProtocol, "failed to parse line %q", line)
 		}
 
+		// aw-开荒: [Peer 上下文切换]
+		// WireGuard 配置协议是流式的。一旦读到 "public_key=xxx"，
+		// 它意味着上一个 Peer 配置结束，开始创建一个新 Peer (或查找已有 Peer)。
 		if key == "public_key" {
 			if deviceConfig {
 				deviceConfig = false
@@ -370,6 +373,9 @@ func (device *Device) handlePeerLine(peer *ipcSetPeer, key, value string) error 
 		}
 		device.allowedips.RemoveByPeer(peer.Peer)
 
+		// aw-开荒: [路由注入点]
+	// 这里是最关键的一步：将 IP 网段添加到内部路由表 (AllowedIPs Trie)。
+	// 只有在这里注册过的 IP，发来的包才会被接收，发往该 IP 的包才会被加密。
 	case "allowed_ip":
 		add := true
 		verb := "Adding"
@@ -416,6 +422,9 @@ func (device *Device) IpcSet(uapiConf string) error {
 	return device.IpcSetOperation(strings.NewReader(uapiConf))
 }
 
+// aw-开荒: [UAPI 总入口]
+// 这里是控制命令的接收循环。无论是 wg 工具还是我们的 Agent，发来的指令最终都流向这里。
+// 它一直监听 Socket，等待 "set=1" (写配置) 或 "get=1" (读状态)。
 func (device *Device) IpcHandle(socket net.Conn) {
 	defer socket.Close()
 
