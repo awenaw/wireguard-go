@@ -48,6 +48,11 @@ var byteBufferPool = &sync.Pool{
 
 // IpcGetOperation implements the WireGuard configuration protocol "get" operation.
 // See https://www.wireguard.com/xplatform/#configuration-protocol for details.
+//
+// aw-开荒: [状态查询接口]
+// 当我们在终端运行 `wg show utun6` 时，请求就会流到这里。
+// 它会把当前的 private_key, listen_port, 以及所有 peer 的统计信息 (rx/tx bytes)
+// 打印成 key=value 的文本格式返回给客户端。
 func (device *Device) IpcGetOperation(w io.Writer) error {
 	device.ipcMutex.RLock()
 	defer device.ipcMutex.RUnlock()
@@ -218,7 +223,7 @@ func (device *Device) handleDeviceLine(key, value string) error {
 		device.log.Verbosef("UAPI: Updating listen port")
 
 		device.net.Lock()
-		device.net.port = uint16(port)
+		device.net.port = uint16(port) // aw-开荒: [更新端口]
 		device.net.Unlock()
 
 		if err := device.BindUpdate(); err != nil {
@@ -443,7 +448,7 @@ func (device *Device) IpcHandle(socket net.Conn) {
 		// handle operation
 		switch op {
 		case "set=1\n":
-			err = device.IpcSetOperation(buffered.Reader)
+			err = device.IpcSetOperation(buffered.Reader) //aw-承上启下
 		case "get=1\n":
 			var nextByte byte
 			nextByte, err = buffered.ReadByte()

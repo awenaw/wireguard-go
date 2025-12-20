@@ -203,7 +203,7 @@ func (peer *Peer) keepKeyFreshSending() {
 	}
 }
 
-func (device *Device) RoutineReadFromTUN() {
+func (device *Device) RoutineReadFromTUN() { // aw-开荒: [读取 TUN]-发包
 	defer func() {
 		device.log.Verbosef("Routine: TUN reader - stopped")
 		device.state.stopping.Done()
@@ -249,6 +249,8 @@ func (device *Device) RoutineReadFromTUN() {
 			elem.packet = bufs[i][offset : offset+sizes[i]]
 
 			// lookup peer
+			// aw-开荒: [物流分拣]
+			// 这里根据目标 IP (10.166.0.2) 查路由表，决定把包给谁。
 			var peer *Peer
 			switch elem.packet[0] >> 4 {
 			case 4:
@@ -342,6 +344,10 @@ top:
 
 	keypair := peer.keypairs.Current()
 	if keypair == nil || keypair.sendNonce.Load() >= RejectAfterMessages || time.Since(keypair.created) >= RejectAfterTime {
+		// aw-开荒: [拦路虎]
+		// 发现没有密钥（没握手）？
+		// 1. 扣下当前的包（留在 staged 队列里）。
+		// 2. 发送“握手请求” (Handshake Initiation)。
 		peer.SendHandshakeInitiation(false)
 		return
 	}
@@ -506,6 +512,8 @@ func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 		}
 		dataSent := false
 		elemsContainer.Lock()
+		// aw-开荒: [出货口]
+		// 这里是数据包加密后、发往公网前的最后一站。
 		for _, elem := range elemsContainer.elems {
 			if len(elem.packet) != MessageKeepaliveSize {
 				dataSent = true
