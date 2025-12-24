@@ -203,6 +203,7 @@ func (peer *Peer) keepKeyFreshSending() {
 	}
 }
 
+// aw-开荒: 隧道入口（上一站是内核）。设备接受外部传入的数据包
 func (device *Device) RoutineReadFromTUN() { // aw-开荒: [读取 TUN]-发包
 	defer func() {
 		device.log.Verbosef("Routine: TUN reader - stopped")
@@ -239,6 +240,7 @@ func (device *Device) RoutineReadFromTUN() { // aw-开荒: [读取 TUN]-发包
 
 	for {
 		// read packets
+		// aw-在向内核“讨要”通过 utun 传过来的数据包
 		count, readErr = device.tun.device.Read(bufs, sizes, offset)
 		for i := 0; i < count; i++ {
 			if sizes[i] < 1 {

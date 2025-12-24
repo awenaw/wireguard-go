@@ -50,6 +50,7 @@ var byteBufferPool = &sync.Pool{
 // See https://www.wireguard.com/xplatform/#configuration-protocol for details.
 //
 // aw-开荒: [状态查询接口]
+// 把内存里的 Device 和 Peer 状态序列化成 key=value 文本流，输出到指定的 Writer。
 // 当我们在终端运行 `wg show utun6` 时，请求就会流到这里。
 // 它会把当前的 private_key, listen_port, 以及所有 peer 的统计信息 (rx/tx bytes)
 // 打印成 key=value 的文本格式返回给客户端。
@@ -76,7 +77,7 @@ func (device *Device) IpcGetOperation(w io.Writer) error {
 		buf.WriteByte('\n')
 	}
 
-	func() {
+	func() { // aw-只在必要时上锁
 		// lock required resources
 
 		device.net.RLock()
@@ -415,6 +416,20 @@ func (device *Device) handlePeerLine(peer *ipcSetPeer, key, value string) error 
 	return nil
 }
 
+// aw-只是一个"便捷包装"，目前 WireGuard 内部基本不用它。 真正的 Socket 入口是 IpcHandle ，然后它直接调用 IpcGetOperation 。
+// 他是方便外部（二次开发）调用的接口。
+// 返回内容：
+// private_key=a8dac1d8a70a751f0f699fb14ba1cff7b796b4eb606863116a4a15995bd32f7a
+// listen_port=38200
+// public_key=d2fb4b534068efb3a6379b6f3d3e89c3632a3b8e106ac2c9776c38b41d36
+// endpoint=10.0.0.104:38561
+// allowed_ip=10.166.0.3/32
+// rx_bytes=212
+// tx_bytes=92
+// last_handshake_time_sec=1703084400
+// last_handshake_time_nsec=0
+// public_key=58a38177b8577656189071a759a5b00ea79e5f452ec17d1e3730e0823a0727
+// allowed_ip=10.166.0.2/32
 func (device *Device) IpcGet() (string, error) {
 	buf := new(strings.Builder)
 	if err := device.IpcGetOperation(buf); err != nil {
