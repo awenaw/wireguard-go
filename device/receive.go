@@ -252,7 +252,7 @@ func (device *Device) RoutineDecryption(id int) {
 			elem.counter = binary.LittleEndian.Uint64(counter)
 			// copy counter to nonce
 			binary.LittleEndian.PutUint64(nonce[0x4:0xc], elem.counter)
-			elem.packet, err = elem.keypair.receive.Open(
+			elem.packet, err = elem.keypair.receive.Open( //aw-解密
 				content[:0],
 				nonce[:],
 				content,
@@ -481,6 +481,9 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 				elem.packet = elem.packet[:length]
 				src := elem.packet[IPv4offsetSrc : IPv4offsetSrc+net.IPv4len]
 				if device.allowedips.Lookup(src) != peer {
+					// 如果 Peer A 寄过来一个声称源 IP 是 192.168.1.1 的包，
+					// 但你的配置里 Peer A 只允许 10.166.0.0/24，
+					// WireGuard 会在这行（483/500行）毫不犹豫地把包销毁：
 					device.log.Verbosef("IPv4 packet with disallowed source address from %v", peer)
 					continue
 				}
@@ -513,12 +516,12 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 		peer.rxBytes.Add(rxBytesLen)
 		if validTailPacket >= 0 {
 			peer.SetEndpointFromPacket(elemsContainer.elems[validTailPacket].endpoint)
-			peer.keepKeyFreshReceiving()
-			peer.timersAnyAuthenticatedPacketTraversal()
+			peer.keepKeyFreshReceiving()                 // 检查密钥是否快过期，是否需要重新握手
+			peer.timersAnyAuthenticatedPacketTraversal() // 记录：包穿过了防火墙
 			peer.timersAnyAuthenticatedPacketReceived()
 		}
 		if dataPacketReceived {
-			peer.timersDataReceived()
+			peer.timersDataReceived() // 只有包含实际数据的包（非空包）才触发这个计时
 		}
 		if len(bufs) > 0 {
 			_, err := device.tun.device.Write(bufs, MessageTransportOffsetContent)

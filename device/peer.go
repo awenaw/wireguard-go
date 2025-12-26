@@ -21,10 +21,10 @@ import (
 
 // Peer 代表一个WireGuard对等体，包含了与远程端点通信所需的所有状态信息
 type Peer struct {
-	isRunning         atomic.Bool   // 原子布尔值，标识对等体是否正在运行
-	keypairs          Keypairs      // 密钥对管理器，存储当前、上一个和下一个密钥对
-	handshake         Handshake     // 握手状态信息，包含Noise协议相关数据
-	device            *Device       // 指向所属设备的指针
+	isRunning         atomic.Bool    // 原子布尔值，标识对等体是否正在运行
+	keypairs          Keypairs       // 密钥对管理器，存储当前、上一个和下一个密钥对
+	handshake         Handshake      // 握手状态信息，包含Noise协议相关数据
+	device            *Device        // 指向所属设备的指针
 	stopping          sync.WaitGroup // 等待组，用于优雅关闭正在运行的协程
 	txBytes           atomic.Uint64  // 发送到对等体的字节数统计（原子操作）
 	rxBytes           atomic.Uint64  // 从对等体接收的字节数统计（原子操作）
@@ -32,10 +32,10 @@ type Peer struct {
 
 	// 端点信息结构体，包含网络连接相关配置
 	endpoint struct {
-		sync.Mutex                  // 保护端点配置的互斥锁
+		sync.Mutex                   // 保护端点配置的互斥锁
 		val            conn.Endpoint // 实际的网络端点对象
-		clearSrcOnTx   bool         // 标志位：在下次发送数据包前是否需要清除源地址
-		disableRoaming bool         // 禁用漫游功能，阻止端点地址的自动更新
+		clearSrcOnTx   bool          // 标志位：在下次发送数据包前是否需要清除源地址
+		disableRoaming bool          // 禁用漫游功能，阻止端点地址的自动更新
 	}
 
 	// 定时器组，管理各种网络协议定时任务
@@ -70,6 +70,7 @@ type Peer struct {
 // NewPeer 创建一个新的对等体实例
 // 参数：
 //   - pk: 对等体的公钥，用于标识和加密通信
+//
 // 返回：
 //   - *Peer: 创建的对等体实例
 //   - error: 创建过程中的错误信息
@@ -80,10 +81,10 @@ func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
 	}
 
 	// 锁定资源以确保并发安全
-	device.staticIdentity.RLock()  // 读锁保护静态身份信息
+	device.staticIdentity.RLock() // 读锁保护静态身份信息
 	defer device.staticIdentity.RUnlock()
 
-	device.peers.Lock()  // 写锁保护对等体映射表
+	device.peers.Lock() // 写锁保护对等体映射表
 	defer device.peers.Unlock()
 
 	// 检查对等体数量是否超过限制
@@ -97,11 +98,11 @@ func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
 	// 初始化Cookie生成器，用于DoS防护
 	peer.cookieGenerator.Init(pk)
 	peer.device = device
-	
+
 	// 初始化数据包队列
-	peer.queue.outbound = newAutodrainingOutboundQueue(device)  // 创建自动排空的出站队列
-	peer.queue.inbound = newAutodrainingInboundQueue(device)    // 创建自动排空的入站队列
-	peer.queue.staged = make(chan *QueueOutboundElementsContainer, QueueStagedSize)  // 创建暂存队列
+	peer.queue.outbound = newAutodrainingOutboundQueue(device)                      // 创建自动排空的出站队列
+	peer.queue.inbound = newAutodrainingInboundQueue(device)                        // 创建自动排空的入站队列
+	peer.queue.staged = make(chan *QueueOutboundElementsContainer, QueueStagedSize) // 创建暂存队列
 
 	// 检查公钥是否已存在于映射表中
 	_, ok := device.peers.keyMap[pk]
@@ -114,14 +115,14 @@ func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
 	handshake.mutex.Lock()
 	// 计算本地私钥与对等体公钥的共享密钥
 	handshake.precomputedStaticStatic, _ = device.staticIdentity.privateKey.sharedSecret(pk)
-	handshake.remoteStatic = pk  // 存储对等体的静态公钥
+	handshake.remoteStatic = pk // 存储对等体的静态公钥
 	handshake.mutex.Unlock()
 
 	// 重置端点配置到初始状态
 	peer.endpoint.Lock()
-	peer.endpoint.val = nil                    // 清空端点地址
-	peer.endpoint.disableRoaming = false       // 启用漫游功能
-	peer.endpoint.clearSrcOnTx = false         // 不需要清除源地址
+	peer.endpoint.val = nil              // 清空端点地址
+	peer.endpoint.disableRoaming = false // 启用漫游功能
+	peer.endpoint.clearSrcOnTx = false   // 不需要清除源地址
 	peer.endpoint.Unlock()
 
 	// 初始化定时器系统
@@ -136,6 +137,7 @@ func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
 // SendBuffers 向对等体发送数据包缓冲区
 // 参数：
 //   - buffers: 要发送的数据包缓冲区数组
+//
 // 返回：
 //   - error: 发送过程中的错误信息
 func (peer *Peer) SendBuffers(buffers [][]byte) error {
@@ -155,7 +157,7 @@ func (peer *Peer) SendBuffers(buffers [][]byte) error {
 		peer.endpoint.Unlock()
 		return errors.New("no known endpoint for peer")
 	}
-	
+
 	// 如果需要清除源地址，则执行清除操作
 	// 这通常用于处理网络接口变更或NAT穿越场景
 	if peer.endpoint.clearSrcOnTx {
@@ -189,31 +191,31 @@ func (peer *Peer) String() string {
 	//   return fmt.Sprintf("peer(%s)", abbreviatedKey)
 	//
 	// 直接进行Base64编码计算，避免了字符串分配和格式化的开销
-	
-	src := peer.handshake.remoteStatic  // 获取对等体的静态公钥
-	
+
+	src := peer.handshake.remoteStatic // 获取对等体的静态公钥
+
 	// Base64编码函数：将6位数值转换为Base64字符
 	b64 := func(input byte) byte {
 		return input + 'A' + byte(((25-int(input))>>8)&6) - byte(((51-int(input))>>8)&75) - byte(((61-int(input))>>8)&15) + byte(((62-int(input))>>8)&3)
 	}
-	
+
 	// 预分配结果字符串缓冲区
 	b := []byte("peer(____…____)")
-	const first = len("peer(")        // 第一段Base64字符的起始位置
-	const second = len("peer(____…")   // 第二段Base64字符的起始位置
-	
+	const first = len("peer(")       // 第一段Base64字符的起始位置
+	const second = len("peer(____…") // 第二段Base64字符的起始位置
+
 	// 编码公钥的前3个字节为4个Base64字符（显示在开头）
 	b[first+0] = b64((src[0] >> 2) & 63)
 	b[first+1] = b64(((src[0] << 4) | (src[1] >> 4)) & 63)
 	b[first+2] = b64(((src[1] << 2) | (src[2] >> 6)) & 63)
 	b[first+3] = b64(src[2] & 63)
-	
+
 	// 编码公钥的最后3个字节为4个Base64字符（显示在末尾）
 	b[second+0] = b64(src[29] & 63)
 	b[second+1] = b64((src[30] >> 2) & 63)
 	b[second+2] = b64(((src[30] << 4) | (src[31] >> 4)) & 63)
 	b[second+3] = b64((src[31] << 2) & 63)
-	
+
 	return string(b)
 }
 
@@ -238,8 +240,8 @@ func (peer *Peer) Start() {
 	device.log.Verbosef("%v - Starting", peer)
 
 	// 重置协程状态
-	peer.stopping.Wait()  // 等待之前的停止操作完成
-	peer.stopping.Add(2)  // 为即将启动的两个协程添加计数
+	peer.stopping.Wait() // 等待之前的停止操作完成
+	peer.stopping.Add(2) // 为即将启动的两个协程添加计数
 
 	// 重置握手状态，设置上次发送握手的时间为很久以前
 	// 这样可以立即触发新的握手过程
@@ -260,10 +262,10 @@ func (peer *Peer) Start() {
 	// 使用设备的批处理大小，而不是绑定的批处理大小
 	// 因为设备大小是批处理池的大小
 	batchSize := peer.device.BatchSize()
-	
+
 	// 启动两个核心协程
-	go peer.RoutineSequentialSender(batchSize)    // 顺序发送协程
-	go peer.RoutineSequentialReceiver(batchSize)  // 顺序接收协程
+	go peer.RoutineSequentialSender(batchSize)   // 顺序发送协程
+	go peer.RoutineSequentialReceiver(batchSize) // 顺序接收协程
 
 	// 标记对等体为运行状态
 	peer.isRunning.Store(true)
@@ -288,8 +290,8 @@ func (peer *Peer) ZeroAndFlushAll() {
 	// 清除握手状态
 	handshake := &peer.handshake
 	handshake.mutex.Lock()
-	device.indexTable.Delete(handshake.localIndex)  // 从索引表中删除本地索引
-	handshake.Clear()                               // 清除所有握手相关数据
+	device.indexTable.Delete(handshake.localIndex) // 从索引表中删除本地索引
+	handshake.Clear()                              // 清除所有握手相关数据
 	handshake.mutex.Unlock()
 
 	// 刷新暂存的数据包
@@ -297,13 +299,13 @@ func (peer *Peer) ZeroAndFlushAll() {
 }
 
 // ExpireCurrentKeypairs 使当前的密钥对过期
-// 通过设置发送随机数为拒绝阈值，强制触发密钥重新协商
+// 通过设置发送随机数为拒绝阈值，强制触发密钥重新协商 aw-玉石俱焚玩法
 func (peer *Peer) ExpireCurrentKeypairs() {
 	// 清除握手状态并重置握手时间
 	handshake := &peer.handshake
 	handshake.mutex.Lock()
-	peer.device.indexTable.Delete(handshake.localIndex)  // 从索引表中删除握手索引
-	handshake.Clear()                                    // 清除握手状态
+	peer.device.indexTable.Delete(handshake.localIndex) // 从索引表中删除握手索引
+	handshake.Clear()                                   // 清除握手状态
 	// 设置上次握手时间为很久以前，立即触发新的握手
 	peer.handshake.lastSentHandshake = time.Now().Add(-(RekeyTimeout + time.Second))
 	handshake.mutex.Unlock()
@@ -338,14 +340,14 @@ func (peer *Peer) Stop() {
 
 	// 停止所有定时器
 	peer.timersStop()
-	
+
 	// 向队列发送nil信号，通知RoutineSequentialSender和RoutineSequentialReceiver协程退出
-	peer.queue.inbound.c <- nil   // 通知入站处理协程退出
-	peer.queue.outbound.c <- nil  // 通知出站处理协程退出
-	
+	peer.queue.inbound.c <- nil  // 通知入站处理协程退出
+	peer.queue.outbound.c <- nil // 通知出站处理协程退出
+
 	// 等待所有相关协程完全停止
 	peer.stopping.Wait()
-	
+
 	// 减少加密队列的等待组计数，表示我们不再向加密队列写入数据
 	peer.device.queue.encryption.wg.Done()
 
@@ -360,15 +362,15 @@ func (peer *Peer) Stop() {
 func (peer *Peer) SetEndpointFromPacket(endpoint conn.Endpoint) {
 	peer.endpoint.Lock()
 	defer peer.endpoint.Unlock()
-	
+
 	// 如果禁用了漫游功能，则不更新端点
 	if peer.endpoint.disableRoaming {
 		return
 	}
-	
+
 	// 更新端点配置
-	peer.endpoint.clearSrcOnTx = false  // 重置源地址清除标志
-	peer.endpoint.val = endpoint        // 设置新的端点地址
+	peer.endpoint.clearSrcOnTx = false // 重置源地址清除标志
+	peer.endpoint.val = endpoint       // 设置新的端点地址
 }
 
 // markEndpointSrcForClearing 标记端点源地址需要在下次发送时清除
@@ -377,12 +379,12 @@ func (peer *Peer) SetEndpointFromPacket(endpoint conn.Endpoint) {
 func (peer *Peer) markEndpointSrcForClearing() {
 	peer.endpoint.Lock()
 	defer peer.endpoint.Unlock()
-	
+
 	// 如果端点不存在，则无需处理
 	if peer.endpoint.val == nil {
 		return
 	}
-	
+
 	// 设置标志位，表示在下次发送数据包前需要清除源地址
 	// 这将强制系统重新选择合适的源地址进行发送
 	peer.endpoint.clearSrcOnTx = true
