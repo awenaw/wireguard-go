@@ -103,6 +103,7 @@ func (device *Device) IpcGetOperation(w io.Writer) error {
 			sendf("fwmark=%d", device.net.fwmark)
 		}
 
+		// aw- WireGuard UAPI (用户态接口) 中处理 "GET" (查询状态) 请求的核心循环。
 		for _, peer := range device.peers.keyMap {
 			// Serialize peer state.
 			peer.handshake.mutex.RLock()
