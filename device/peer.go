@@ -22,7 +22,7 @@ import (
 // Peer 代表一个WireGuard对等体，包含了与远程端点通信所需的所有状态信息
 type Peer struct {
 	isRunning         atomic.Bool    // 原子布尔值，标识对等体是否正在运行
-	keypairs          Keypairs       // 密钥对管理器，存储当前、上一个和下一个密钥对
+	keypairs          Keypairs       // 密钥对管理器，存储当前、上一个和下一个密钥对 aw-保证更换密钥时，会话正常
 	handshake         Handshake      // 握手状态信息，包含Noise协议相关数据
 	device            *Device        // 指向所属设备的指针
 	stopping          sync.WaitGroup // 等待组，用于优雅关闭正在运行的协程

@@ -96,6 +96,18 @@ func (rate *Ratelimiter) cleanup() (empty bool) {
 	return len(rate.table) == 0
 }
 
+// 这个函数只接收一个参数：IP 地址。
+
+// Map (Table): 只要有新 IP 来发包，就给他建一个
+// RatelimiterEntry
+// （令牌桶）。
+// Tokens (令牌):
+// 初始给你满满一桶令牌 (maxTokens)。
+// 每发一个包，扣除一点 (packetCost)。
+// 随着时间流逝，令牌会自动补满 (entry.tokens += timeDiff)。
+// 阈值:
+// 默认限制是：每秒 20 个包 (packetsPerSecond = 20)。
+// 允许突发：最多连发 5 个包 (packetsBurstable = 5)。
 func (rate *Ratelimiter) Allow(ip netip.Addr) bool {
 	var entry *RatelimiterEntry
 	// lookup entry
