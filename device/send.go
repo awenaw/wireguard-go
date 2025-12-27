@@ -444,6 +444,9 @@ func calculatePaddingSize(packetSize, mtu int) int {
  *
  * Obs. One instance per core
  */
+// aw-开荒: [加密工人工厂]
+// 这是 WireGuard 的核心动力室。通常每一个 CPU 核心都会运行一个这样的协程。
+// 它们从全局的加密队列里抢任务，利用多核优势并发计算 ChaCha20Poly1305。
 func (device *Device) RoutineEncryption(id int) {
 	var paddingZeros [PaddingMultiple]byte
 	var nonce [chacha20poly1305.NonceSize]byte
@@ -451,7 +454,10 @@ func (device *Device) RoutineEncryption(id int) {
 	defer device.log.Verbosef("Routine: encryption worker %d - stopped", id)
 	device.log.Verbosef("Routine: encryption worker %d - started", id)
 
+	// 不停地从队列里拿"一筐"待加密的包
 	for elemsContainer := range device.queue.encryption.c {
+
+		// 遍历这一筐里的每一个包
 		for _, elem := range elemsContainer.elems {
 			// populate header fields
 			header := elem.buffer[:MessageTransportHeaderSize]
@@ -460,24 +466,37 @@ func (device *Device) RoutineEncryption(id int) {
 			fieldReceiver := header[4:8]
 			fieldNonce := header[8:16]
 
+			// 1. 填写 UDP 头 (Type=4, ReceiverIndex, Nonce)
+			// 注意：nonce 已经在入队前分配好了，这里只是填进去
 			binary.LittleEndian.PutUint32(fieldType, MessageTransportType)
 			binary.LittleEndian.PutUint32(fieldReceiver, elem.keypair.remoteIndex)
 			binary.LittleEndian.PutUint64(fieldNonce, elem.nonce)
 
 			// pad content to multiple of 16
+			// 2. 填充数据 (Padding)
+			// 为了对抗流量分析，把数据包长度对齐到 16 字节
 			paddingSize := calculatePaddingSize(len(elem.packet), int(device.tun.mtu.Load()))
 			elem.packet = append(elem.packet, paddingZeros[:paddingSize]...)
 
 			// encrypt content and release to consumer
-
+			// 3. 核心加密 (Seal) !
+			// 将 nonce 的后 8 字节填好 (前 4 字节是 0)
 			binary.LittleEndian.PutUint64(nonce[4:], elem.nonce)
+
+			// 调用 ChaCha20-Poly1305 进行加密 + 认证
+			// header 作为 Associated Data (AD) 参与认证，但不被加密
 			elem.packet = elem.keypair.send.Seal(
-				header,
-				nonce[:],
-				elem.packet,
-				nil,
+				header,      // dst: 结果直接写回 header 后面
+				nonce[:],    // nonce
+				elem.packet, // plaintext
+				nil,         // additional data
 			)
 		}
+
+		// 4. 交卷 (Unlock)
+		// 解开这个容器的锁。
+		// 在另一头死等这个锁的 'RoutineSequentialSender' 就会立刻苏醒，
+		// 把已经加密好的数据发出去。
 		elemsContainer.Unlock()
 	}
 }
