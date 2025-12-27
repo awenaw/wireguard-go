@@ -35,6 +35,13 @@ echo "  已添加 Debian (10.166.0.3)"
 # iPhone
 sudo wg set $INTERFACE peer WKO1H3uFd1YYlMHGn1GltA6npl9RLsF9E0x3OIugcnU= allowed-ips 10.166.0.2/32
 echo "  已添加 iPhone (10.166.0.2)"
+# Alpine Containers
+sudo wg set $INTERFACE peer vf6g11UBrdxBuvbm4zNomaTYVWB5OJkX1oHBZto0mlA= allowed-ips 10.166.0.201/32
+echo "  已添加 wg-study  (10.166.0.201)"
+sudo wg set $INTERFACE peer 4PmfLjpFQFiZbJSbAhLN+VAol8gi0St7B8MS/KLkixU= allowed-ips 10.166.0.202/32
+echo "  已添加 wg-study2 (10.166.0.202)"
+sudo wg set $INTERFACE peer ekdwl4M/8DTTks1Y0p6PjWMJPfC9T/7TIe6kw+i0ogE= allowed-ips 10.166.0.203/32
+echo "  已添加 wg-study3 (10.166.0.203)"
 
 # 显示状态
 echo ""
