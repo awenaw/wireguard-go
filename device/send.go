@@ -501,6 +501,9 @@ func (device *Device) RoutineEncryption(id int) {
 	}
 }
 
+// aw-开荒: [发货员]
+// 每个 Peer 都有一个专门负责发货的协程。
+// 它的职责是按照 nonce 的顺序，将加密好的数据包通过 UDP 发送出去。
 func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 	device := peer.device
 	defer func() {
@@ -511,6 +514,8 @@ func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 
 	bufs := make([][]byte, 0, maxBatchSize)
 
+	// 死守 outbound 队列
+	// 这个队列里的东西，是那边 Encrypt Worker 正在处理（或已处理完）的容器
 	for elemsContainer := range peer.queue.outbound.c {
 		bufs = bufs[:0]
 		if elemsContainer == nil {
@@ -523,6 +528,8 @@ func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 			// The timers and SendBuffers code are resilient to a few stragglers.
 			// TODO: rework peer shutdown order to ensure
 			// that we never accidentally keep timers alive longer than necessary.
+
+			// 如果 Peer 停了，就只要回收资源，不发送
 			elemsContainer.Lock()
 			for _, elem := range elemsContainer.elems {
 				device.PutMessageBuffer(elem.buffer)
@@ -532,9 +539,14 @@ func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 			continue
 		}
 		dataSent := false
+
+		// 1. 等待加密完成 (Wait Lock)
+		// 如果加密工人还没解开锁 (Unlock)，这里就会阻塞。
+		// 这保证了即便加密是乱序并发的，发货一定是严格顺序的。
 		elemsContainer.Lock()
+
 		// aw-开荒: [出货口]
-		// 这里是数据包加密后、发往公网前的最后一站。
+		// 能走到这里，说明锁拿到了，包已经是加密好的密文 (Ciphertext) 了。
 		for _, elem := range elemsContainer.elems {
 			if len(elem.packet) != MessageKeepaliveSize {
 				dataSent = true
@@ -542,9 +554,13 @@ func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 			bufs = append(bufs, elem.packet)
 		}
 
+		// 2. 更新计时器
+		// 告诉系统：我发了个验证过的包，重置 keepalive 计时器
 		peer.timersAnyAuthenticatedPacketTraversal()
 		peer.timersAnyAuthenticatedPacketSent()
 
+		// 3. 物理发送 (Send)
+		// 调用底层的 Bind (UDP Socket) 把这一批密文射向公网
 		err := peer.SendBuffers(bufs)
 		if dataSent {
 			peer.timersDataSent()
