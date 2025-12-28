@@ -204,6 +204,11 @@ func (peer *Peer) keepKeyFreshSending() {
 }
 
 // aw-开荒: 隧道入口（上一站是内核）。设备接受外部传入的数据包
+// 发包入口：内核 -> Go (读自 TUN)
+// 在这个函数 RoutineReadFromTUN
+// 命中时，你能看到最原始、还没被加工过的原始 IP 包。
+// 如果你想在代码里改包的内容、或者做一些流量监控，这里就是第一战场。
+// wggo 拿货的地方
 func (device *Device) RoutineReadFromTUN() { // aw-开荒: [读取 TUN]-发包
 	defer func() {
 		device.log.Verbosef("Routine: TUN reader - stopped")
@@ -502,7 +507,7 @@ func (device *Device) RoutineEncryption(id int) {
 }
 
 // aw-开荒: [发货员]
-// 每个 Peer 都有一个专门负责发货的协程。
+// 每个 Peer 都有一个专门负责发货的协程。每个Peer 只有一个！
 // 它的职责是按照 nonce 的顺序，将加密好的数据包通过 UDP 发送出去。
 func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 	device := peer.device

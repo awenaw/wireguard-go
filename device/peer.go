@@ -219,7 +219,7 @@ func (peer *Peer) String() string {
 	return string(b)
 }
 
-// Start 启动对等体的通信处理流程
+// Start 启动peer的通信处理流程
 // 启动后，对等体将能够发送和接收数据包，并处理握手等协议逻辑
 func (peer *Peer) Start() {
 	// 不应在已关闭的设备上启动对等体

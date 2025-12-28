@@ -65,7 +65,7 @@ func (peer *Peer) keepKeyFreshReceiving() {
 }
 
 /* Receives incoming datagrams for the device
- *
+ * aw-开荒: [收货口]
  * Every time the bind is updated a new routine is started for
  * IPv4 and IPv6 (separately)
  */
@@ -426,6 +426,9 @@ func (device *Device) RoutineHandshake(id int) {
 	}
 }
 
+// 数据进入你系统的最后一道防线
+// （是 “并行世界的收束点”。它像是一条流水线的最后一道工序，
+// 把大家七手八脚做好的零件，按编号一个个装箱。）
 func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 	device := peer.device
 	defer func() {
@@ -521,8 +524,9 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 			peer.timersAnyAuthenticatedPacketReceived()
 		}
 		if dataPacketReceived {
-			peer.timersDataReceived() // 只有包含实际数据的包（非空包）才触发这个计时
+			peer.timersDataReceived() // 只有包含实际数据的包（非空包）才触发这个计时(免去了频繁的 keepalive)
 		}
+		// aw-收包出口：Go -> 内核 (写往 TUN)
 		if len(bufs) > 0 {
 			_, err := device.tun.device.Write(bufs, MessageTransportOffsetContent)
 			if err != nil && !device.isClosed() {
