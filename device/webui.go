@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"sort"
 	"time"
 )
 
@@ -51,6 +52,7 @@ func NewWebUI(device *Device, addr string) *WebUI {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", ui.handleStatus)
 	mux.HandleFunc("/api/peers", ui.handlePeers)
+	mux.HandleFunc("/docs", ui.handleDocs)
 	mux.HandleFunc("/", ui.handleIndex)
 
 	ui.server = &http.Server{
@@ -117,6 +119,11 @@ func (ui *WebUI) getDeviceInfo() DeviceInfo {
 		peers = append(peers, peerInfo)
 	}
 	device.peers.RUnlock()
+
+	// 按备注名排序
+	sort.Slice(peers, func(i, j int) bool {
+		return peers[i].Remark < peers[j].Remark
+	})
 
 	return DeviceInfo{
 		PublicKey:  publicKey,
@@ -188,96 +195,162 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #e0e0e0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #f1f5f9;
             min-height: 100vh;
-            padding: 20px;
+            padding: 40px 20px;
         }
-        .container { max-width: 1200px; margin: 0 auto; }
-        h1 {
-            text-align: center;
-            margin-bottom: 30px;
-            color: #00d4ff;
-            text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
-        }
-        .device-info {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 30px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .device-info h2 { color: #00d4ff; margin-bottom: 15px; }
-        .info-row { display: flex; margin-bottom: 10px; }
-        .info-label { color: #888; width: 120px; }
-        .info-value { color: #fff; font-family: monospace; }
-        .peers-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 20px;
-        }
-        .peer-card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 15px;
-            padding: 20px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: transform 0.3s, box-shadow 0.3s;
-        }
-        .peer-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(0, 212, 255, 0.2);
-        }
-        .peer-header {
+        .container { max-width: 1100px; margin: 0 auto; }
+        header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            padding-bottom: 10px;
+            margin-bottom: 40px;
         }
-        .peer-name { font-size: 1.2em; font-weight: bold; color: #00d4ff; }
-        .peer-status {
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 0.8em;
-        }
-        .status-online { background: rgba(0, 255, 100, 0.2); color: #00ff64; }
-        .status-offline { background: rgba(255, 100, 100, 0.2); color: #ff6464; }
-        .peer-detail { margin-bottom: 8px; font-size: 0.9em; }
-        .peer-detail .label { color: #888; }
-        .peer-detail .value { color: #fff; font-family: monospace; word-break: break-all; }
-        .traffic {
+        h1 {
+            font-size: 24px;
+            color: #38bdf8;
+            font-weight: 700;
             display: flex;
-            justify-content: space-around;
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            align-items: center;
+            gap: 12px;
         }
-        .traffic-item { text-align: center; }
-        .traffic-label { color: #888; font-size: 0.8em; }
-        .traffic-value { color: #00d4ff; font-size: 1.1em; font-weight: bold; }
-        .refresh-info {
+        .device-info {
+	            background: #1e293b;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 30px;
+            border: 1px solid #334155;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        .info-card h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #94a3b8;
+            margin-bottom: 8px;
+            letter-spacing: 0.05em;
+        }
+        .info-card p {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 16px;
+            color: #f8fafc;
+            word-break: break-all;
+        }
+        .peer-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .peer-row {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 16px 24px;
+            border: 1px solid #334155;
+            display: grid;
+            grid-template-columns: 1.5fr 2fr 1.5fr 1fr 1.5fr;
+            align-items: center;
+            gap: 20px;
+            transition: all 0.2s ease;
+        }
+        .peer-row:hover {
+            border-color: #38bdf8;
+            background: #24324d;
+            transform: scale(1.01);
+        }
+        .peer-main {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .status-dot.online { background: #22c55e; box-shadow: 0 0 10px #22c55e; }
+        .status-dot.offline { background: #94a3b8; }
+        .peer-name {
+            font-weight: 600;
+            font-size: 16px;
+            color: #f8fafc;
+        }
+        .peer-ips {
+            font-size: 13px;
+            color: #94a3b8;
+            font-family: monospace;
+        }
+        .label-small {
+            font-size: 11px;
+            color: #64748b;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        .value-small {
+            font-size: 13px;
+            color: #cbd5e1;
+            font-family: monospace;
+        }
+        .traffic-group {
+            display: flex;
+            gap: 16px;
+        }
+        .traffic-box {
+            display: flex;
+            flex-direction: column;
+        }
+        .traffic-val {
+            font-size: 13px;
+            color: #38bdf8;
+            font-weight: 500;
+        }
+        .handshake-time {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+        .refresh-tag {
             text-align: center;
-            margin-top: 20px;
-            color: #666;
-            font-size: 0.9em;
+            margin-top: 30px;
+            color: #475569;
+            font-size: 12px;
+        }
+        @media (max-width: 900px) {
+            .peer-row {
+                grid-template-columns: 1fr 1fr;
+                gap: 15px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔐 WireGuard 状态监控</h1>
-        <div class="device-info" id="device-info">
-            <h2>设备信息</h2>
-            <div id="device-content">加载中...</div>
+        <header>
+            <h1><span>🛡️</span> WireGuard Controller</h1>
+        </header>
+
+        <div class="device-info">
+            <div class="info-card">
+                <h3>服务端公钥</h3>
+                <p id="dev-pubkey">-</p>
+            </div>
+            <div class="info-card">
+                <h3>监听端口</h3>
+                <p id="dev-port">-</p>
+            </div>
+            <div class="info-card">
+                <h3>已连接设备</h3>
+                <p id="dev-count">-</p>
+            </div>
         </div>
-        <div class="peers-grid" id="peers-grid">
+
+        <div class="peer-list" id="peer-list">
             <!-- Peers will be loaded here -->
         </div>
-        <div class="refresh-info">每 3 秒自动刷新</div>
+        
+        <div class="refresh-tag">每 3 秒自动同步数据</div>
     </div>
 
     <script>
@@ -293,62 +366,46 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
             fetch('/api/status')
                 .then(res => res.json())
                 .then(data => {
-                    // Update device info
-                    document.getElementById('device-content').innerHTML = ` + "`" + `
-                        <div class="info-row">
-                            <span class="info-label">公钥:</span>
-                            <span class="info-value">${data.public_key}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">监听端口:</span>
-                            <span class="info-value">${data.listen_port}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">对等体数量:</span>
-                            <span class="info-value">${data.peer_count}</span>
-                        </div>
-                    ` + "`" + `;
+                    document.getElementById('dev-pubkey').innerText = data.public_key;
+                    document.getElementById('dev-port').innerText = data.listen_port;
+                    document.getElementById('dev-count').innerText = data.peer_count;
 
-                    // Update peers
-                    const peersHtml = data.peers.map(peer => ` + "`" + `
-                        <div class="peer-card">
-                            <div class="peer-header">
-                                <span class="peer-name">${peer.remark}</span>
-                                <span class="peer-status ${peer.is_running ? 'status-online' : 'status-offline'}">
-                                    ${peer.is_running ? '在线' : '离线'}
-                                </span>
-                            </div>
-                            <div class="peer-detail">
-                                <span class="label">公钥: </span>
-                                <span class="value">${peer.public_key.substring(0, 20)}...</span>
-                            </div>
-                            <div class="peer-detail">
-                                <span class="label">VPN IP: </span>
-                                <span class="value">${peer.allowed_ips ? peer.allowed_ips.join(', ') : 'N/A'}</span>
-                            </div>
-                            <div class="peer-detail">
-                                <span class="label">UDP 端点: </span>
-                                <span class="value">${peer.endpoint}</span>
-                            </div>
-                            <div class="peer-detail">
-                                <span class="label">最后握手: </span>
-                                <span class="value">${peer.last_handshake}</span>
-                            </div>
-                            <div class="traffic">
-                                <div class="traffic-item">
-                                    <div class="traffic-label">↑ 发送</div>
-                                    <div class="traffic-value">${formatBytes(peer.tx_bytes)}</div>
+                    const listHtml = data.peers.map(peer => ` + "`" + `
+                        <div class="peer-row">
+                            <div class="peer-main">
+                                <div class="status-dot ${peer.is_running ? 'online' : 'offline'}"></div>
+                                <div>
+                                    <div class="peer-name">${peer.remark}</div>
+                                    <div class="peer-ips">${peer.allowed_ips ? peer.allowed_ips.join(', ') : '-'}</div>
                                 </div>
-                                <div class="traffic-item">
-                                    <div class="traffic-label">↓ 接收</div>
-                                    <div class="traffic-value">${formatBytes(peer.rx_bytes)}</div>
+                            </div>
+                            <div>
+                                <div class="label-small">对等体公钥</div>
+                                <div class="value-small">${peer.public_key.substring(0, 24)}...</div>
+                            </div>
+                            <div>
+                                <div class="label-small">UDP 端点</div>
+                                <div class="value-small">${peer.endpoint}</div>
+                            </div>
+                            <div class="traffic-group">
+                                <div class="traffic-box">
+                                    <div class="label-small">发送</div>
+                                    <div class="traffic-val">↑ ${formatBytes(peer.tx_bytes)}</div>
                                 </div>
+                                <div class="traffic-box">
+                                    <div class="label-small">接收</div>
+                                    <div class="traffic-val">↓ ${formatBytes(peer.rx_bytes)}</div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="label-small">最后活跃</div>
+                                <div class="handshake-time">${peer.last_handshake}</div>
                             </div>
                         </div>
                     ` + "`" + `).join('');
-                    document.getElementById('peers-grid').innerHTML = peersHtml;
+                    document.getElementById('peer-list').innerHTML = listHtml;
                 })
-                .catch(err => console.error('Error:', err));
+                .catch(err => console.error('Sync Error:', err));
         }
 
         updateStatus();
@@ -357,5 +414,71 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
 </body>
 </html>`
 
+	fmt.Fprint(w, html)
+}
+
+// handleDocs 返回 API 文档页面
+func (ui *WebUI) handleDocs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	html := `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>API 文档 - WireGuard Controller</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #0f172a; color: #f1f5f9; padding: 40px; line-height: 1.6; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { color: #38bdf8; border-bottom: 1px solid #334155; padding-bottom: 10px; }
+        .endpoint { background: #1e293b; border-radius: 8px; padding: 20px; margin-top: 20px; border: 1px solid #334155; }
+        .method { background: #0ea5e9; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 14px; margin-right: 10px; }
+        .path { font-family: monospace; font-size: 18px; color: #f8fafc; }
+        .desc { margin-top: 10px; color: #94a3b8; }
+        pre { background: #000; padding: 15px; border-radius: 6px; overflow-x: auto; color: #10b981; font-size: 13px; margin-top: 10px; }
+        .back { display: inline-block; margin-bottom: 20px; color: #38bdf8; text-decoration: none; font-size: 14px; }
+        .back:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back">← 返回控制面板</a>
+        <h1>📖 接口文档 (API Documentation)</h1>
+        
+        <div class="endpoint">
+            <div><span class="method">GET</span><span class="path">/api/status</span></div>
+            <p class="desc">获取设备的完整状态信息，包括核心公钥、端口以及所有对等体的详细统计。</p>
+            <pre>{
+  "public_key": "...",
+  "listen_port": 38200,
+  "peer_count": 5,
+  "peers": [
+    {
+      "remark": "Debian",
+      "public_key": "...",
+      "endpoint": "10.0.0.3:51820",
+      "allowed_ips": ["10.166.0.3/32"],
+      "tx_bytes": 1024,
+      "rx_bytes": 2048,
+      "last_handshake": "2025-12-30 10:00:00"
+    }
+  ]
+}</pre>
+        </div>
+
+        <div class="endpoint">
+            <div><span class="method">GET</span><span class="path">/api/peers</span></div>
+            <p class="desc">仅返回对等体（Peers）列表数组，适用于轻量级的数据更新。</p>
+            <pre>[
+  { "remark": "iPhone", "public_key": "...", ... },
+  { "remark": "wg-study", "public_key": "...", ... }
+]</pre>
+        </div>
+
+        <div class="endpoint">
+            <div><span class="method">GET</span><span class="path">/docs</span></div>
+            <p class="desc">返回当前你正在阅读的这份文档页面。</p>
+        </div>
+    </div>
+</body>
+</html>`
 	fmt.Fprint(w, html)
 }
