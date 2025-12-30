@@ -293,8 +293,13 @@ func (device *Device) RoutineReadFromTUN() { // aw-开荒: [读取 TUN]-发包
 
 		for peer, elemsForPeer := range elemsByPeer {
 			if peer.isRunning.Load() {
-				peer.StagePackets(elemsForPeer)
-				peer.SendStagedPackets() // 进入加密和发送流程💗
+				//peer.queue.staged 本身就是一个缓冲区。 💗
+				//SendStagedPackets的工作就是排空这个缓冲区
+				// 先 StagePackets（挂号排队），
+				// 再 SendStagedPackets（叫号发货）。
+				// 这保证了永远是最老的包最先尝试发送，新包永远排在旧包后面。
+				peer.StagePackets(elemsForPeer) // 把包塞进 peer.queue.staged 队列里暂存
+				peer.SendStagedPackets()        // 进入加密和发送流程💗
 			} else {
 				for _, elem := range elemsForPeer.elems {
 					device.PutMessageBuffer(elem.buffer)
