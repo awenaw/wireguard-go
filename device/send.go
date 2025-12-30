@@ -294,7 +294,7 @@ func (device *Device) RoutineReadFromTUN() { // aw-开荒: [读取 TUN]-发包
 		for peer, elemsForPeer := range elemsByPeer {
 			if peer.isRunning.Load() {
 				peer.StagePackets(elemsForPeer)
-				peer.SendStagedPackets() // 进入加密和发送流程
+				peer.SendStagedPackets() // 进入加密和发送流程💗
 			} else {
 				for _, elem := range elemsForPeer.elems {
 					device.PutMessageBuffer(elem.buffer)
