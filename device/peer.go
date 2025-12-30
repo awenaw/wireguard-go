@@ -11,6 +11,7 @@ package device
 
 import (
 	"container/list"
+	"encoding/base64"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -65,6 +66,7 @@ type Peer struct {
 	cookieGenerator             CookieGenerator // Cookie生成器，用于DoS防护
 	trieEntries                 list.List       // 前缀树条目列表，用于路由表查找
 	persistentKeepaliveInterval atomic.Uint32   // 持久保活间隔时间（秒，原子操作）
+	Remark                      string          // 备注名称，用于标识对等体（如 "wg-study"）
 }
 
 // NewPeer 创建一个新的对等体实例
@@ -127,6 +129,19 @@ func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
 
 	// 初始化定时器系统
 	peer.timersInit()
+
+	// 根据公钥设置备注名（用于调试）
+	pkBase64 := base64.StdEncoding.EncodeToString(pk[:])
+	remarkMap := map[string]string{
+		"d/bLS0aD77K6N5tv9PqywHn3w8djtuouK6i86dT2mXs=": "Debian",
+		"WKO1H3uFd1YYlMHGn1GltA6npl9RLsF9E0x3OIugcnU=": "iPhone",
+		"vf6g11UBrdxBuvbm4zNomaTYVWB5OJkX1oHBZto0mlA=": "wg-study",
+		"4PmfLjpFQFiZbJSbAhLN+VAol8gi0St7B8MS/KLkixU=": "wg-study2",
+		"ekdwl4M/8DTTks1Y0p6PjWMJPfC9T/7TIe6kw+i0ogE=": "wg-study3",
+	}
+	if name, ok := remarkMap[pkBase64]; ok {
+		peer.Remark = name
+	}
 
 	// 将新对等体添加到设备的映射表中
 	device.peers.keyMap[pk] = peer

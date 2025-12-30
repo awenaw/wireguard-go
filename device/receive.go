@@ -6,9 +6,12 @@
 package device
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"net"
+	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -466,7 +469,33 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 			rxBytesLen += uint64(len(elem.packet) + MinMessageSize)
 
 			if len(elem.packet) == 0 {
-				device.log.Verbosef("%v - 2333我进来了 [keepalive] 时间: %s", peer, time.Now().Format("2006-01-02 15:04:05.000"))
+				// 获取完整公钥
+				peer.handshake.mutex.RLock()
+				fullKey := base64.StdEncoding.EncodeToString(peer.handshake.remoteStatic[:])
+				peer.handshake.mutex.RUnlock()
+				// 获取 VPN IP (AllowedIPs)
+				var vpnIPs []string
+				device.allowedips.EntriesForPeer(peer, func(prefix netip.Prefix) bool {
+					vpnIPs = append(vpnIPs, prefix.String())
+					return true
+				})
+				vpnIPStr := "unknown"
+				if len(vpnIPs) > 0 {
+					vpnIPStr = strings.Join(vpnIPs, ", ")
+				}
+				// 获取 UDP IP (Endpoint)
+				peer.endpoint.Lock()
+				udpIPStr := "unknown"
+				if peer.endpoint.val != nil {
+					udpIPStr = peer.endpoint.val.DstToString()
+				}
+				peer.endpoint.Unlock()
+				// 获取备注名
+				remark := peer.Remark
+				if remark == "" {
+					remark = "未命名"
+				}
+				device.log.Verbosef("[keepalive] 备注: %s, 公钥: %s, VPN: %s, UDP: %s, 时间: %s", remark, fullKey, vpnIPStr, udpIPStr, time.Now().Format("2006-01-02 15:04:05.000"))
 				continue
 			}
 			dataPacketReceived = true
