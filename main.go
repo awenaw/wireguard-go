@@ -222,7 +222,7 @@ func main() {
 		return
 	}
 
-	device := device.NewDevice(tdev, conn.NewDefaultBind(), logger)
+	dev := device.NewDevice(tdev, conn.NewDefaultBind(), logger)
 
 	logger.Verbosef("Device started")
 
@@ -242,11 +242,19 @@ func main() {
 				errs <- err
 				return
 			}
-			go device.IpcHandle(conn)
+			go dev.IpcHandle(conn)
 		}
 	}()
 
 	logger.Verbosef("UAPI listener started")
+
+	// 启动 Web UI 服务器
+	webui := device.NewWebUI(dev, ":8080")
+	if err := webui.Start(); err != nil {
+		logger.Errorf("Failed to start WebUI: %v", err)
+	} else {
+		logger.Verbosef("WebUI available at http://localhost:8080")
+	}
 
 	// wait for program to terminate
 
@@ -256,13 +264,14 @@ func main() {
 	select {
 	case <-term:
 	case <-errs:
-	case <-device.Wait():
+	case <-dev.Wait():
 	}
 
 	// clean up
 
+	webui.Stop()
 	uapi.Close()
-	device.Close()
+	dev.Close()
 
 	logger.Verbosef("Shutting down")
 }
