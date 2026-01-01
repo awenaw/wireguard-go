@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/netip"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -52,6 +53,9 @@ func NewWebUI(device *Device, addr string) *WebUI {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/status", ui.handleStatus)
 	mux.HandleFunc("/api/peers", ui.handlePeers)
+	mux.HandleFunc("/api/peer/add", ui.handlePeerAdd)
+	mux.HandleFunc("/api/peer/remove", ui.handlePeerRemove)
+	mux.HandleFunc("/api/config", ui.handleConfig)
 	mux.HandleFunc("/docs", ui.handleDocs)
 	mux.HandleFunc("/", ui.handleIndex)
 
@@ -481,4 +485,127 @@ func (ui *WebUI) handleDocs(w http.ResponseWriter, r *http.Request) {
 </body>
 </html>`
 	fmt.Fprint(w, html)
+}
+
+// ========== 配置类 API ==========
+
+// PeerAddRequest 添加 Peer 请求体
+type PeerAddRequest struct {
+	PublicKey  string   `json:"public_key"`
+	AllowedIPs []string `json:"allowed_ips"`
+	Endpoint   string   `json:"endpoint,omitempty"`
+	Keepalive  int      `json:"persistent_keepalive,omitempty"`
+}
+
+// handlePeerAdd 添加 Peer
+// POST /api/peer/add
+func (ui *WebUI) handlePeerAdd(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed, use POST"})
+		return
+	}
+
+	var req PeerAddRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid JSON: " + err.Error()})
+		return
+	}
+
+	// 构建 UAPI 配置字符串
+	var config strings.Builder
+	config.WriteString("public_key=" + req.PublicKey + "\n")
+	if req.Endpoint != "" {
+		config.WriteString("endpoint=" + req.Endpoint + "\n")
+	}
+	if req.Keepalive > 0 {
+		config.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", req.Keepalive))
+	}
+	for _, ip := range req.AllowedIPs {
+		config.WriteString("allowed_ip=" + ip + "\n")
+	}
+
+	// 调用 IpcSet
+	if err := ui.device.IpcSet(config.String()); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "Peer added successfully"})
+}
+
+// PeerRemoveRequest 删除 Peer 请求体
+type PeerRemoveRequest struct {
+	PublicKey string `json:"public_key"`
+}
+
+// handlePeerRemove 删除 Peer
+// POST /api/peer/remove
+func (ui *WebUI) handlePeerRemove(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed, use POST"})
+		return
+	}
+
+	var req PeerRemoveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid JSON: " + err.Error()})
+		return
+	}
+
+	// 构建 UAPI 配置字符串
+	config := fmt.Sprintf("public_key=%s\nremove=true\n", req.PublicKey)
+
+	// 调用 IpcSet
+	if err := ui.device.IpcSet(config); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "Peer removed successfully"})
+}
+
+// ConfigRequest 批量配置请求体
+type ConfigRequest struct {
+	Config string `json:"config"` // 原始 UAPI 格式的配置字符串
+}
+
+// handleConfig 批量配置（相当于 IpcSet）
+// POST /api/config
+func (ui *WebUI) handleConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Method not allowed, use POST"})
+		return
+	}
+
+	var req ConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid JSON: " + err.Error()})
+		return
+	}
+
+	// 调用 IpcSet
+	if err := ui.device.IpcSet(req.Config); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "Config applied successfully"})
 }
