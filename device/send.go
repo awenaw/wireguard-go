@@ -255,6 +255,9 @@ func (device *Device) RoutineReadFromTUN() { // aw-开荒: [读取 TUN]-发包
 			elem := elems[i]
 			elem.packet = bufs[i][offset : offset+sizes[i]]
 
+			// aw-开荒: 打印发送的明文 IP 包
+			device.log.Verbosef("[3. 出站] 内层IP包 (来自内核，准备加密) 大小: %d, IP版本: %d, 前20字节: %x", len(elem.packet), elem.packet[0]>>4, elem.packet[:min(20, len(elem.packet))])
+
 			// lookup peer
 			// aw-开荒: [物流分拣]
 			// 这里根据目标 IP (10.166.0.2) 查路由表，决定把包给谁。
@@ -562,6 +565,16 @@ func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 				dataSent = true
 			}
 			bufs = append(bufs, elem.packet)
+
+			// aw-开荒: 打印发出的加密 UDP 包
+			if len(elem.packet) >= 4 {
+				msgType := binary.LittleEndian.Uint32(elem.packet[:4])
+				endpointStr := "unknown"
+				if peer.endpoint.val != nil {
+					endpointStr = peer.endpoint.val.DstToString()
+				}
+				device.log.Verbosef("[4. 发送] 外层UDP包 (加密后，发往公网) 大小: %d, 类型: %d, 目标: %s", len(elem.packet), msgType, endpointStr)
+			}
 		}
 
 		// 2. 更新计时器

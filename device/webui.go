@@ -56,6 +56,7 @@ func NewWebUI(device *Device, addr string) *WebUI {
 	mux.HandleFunc("/api/peer/add", ui.handlePeerAdd)
 	mux.HandleFunc("/api/peer/remove", ui.handlePeerRemove)
 	mux.HandleFunc("/api/config", ui.handleConfig)
+	mux.HandleFunc("/api/hello", ui.handleHello)
 	mux.HandleFunc("/docs", ui.handleDocs)
 	mux.HandleFunc("/", ui.handleIndex)
 
@@ -608,4 +609,19 @@ func (ui *WebUI) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "Config applied successfully"})
+}
+
+// handleHello 简单的 Hello World 接口
+// GET /api/hello
+func (ui *WebUI) handleHello(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	response := map[string]interface{}{
+		"code": 200,
+		"data": map[string]string{
+			"content": "hello,wireguard!",
+		},
+	}
+	json.NewEncoder(w).Encode(response)
 }

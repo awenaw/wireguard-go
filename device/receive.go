@@ -139,6 +139,9 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 			packet := bufsArrs[i][:size]
 			msgType := binary.LittleEndian.Uint32(packet[:4])
 
+			// aw-开荒: 打印收到的 UDP 包
+			device.log.Verbosef("[1. 接收] 外层UDP包 (加密数据) 大小: %d, 类型: %d, 来源: %s", size, msgType, endpoints[i].DstToString())
+
 			switch msgType {
 
 			// check if transport
@@ -499,6 +502,9 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 				continue
 			}
 			dataPacketReceived = true
+
+			// aw-开荒: 打印解密后的明文 IP 包
+			device.log.Verbosef("[2. 进站] 内层IP包 (解密后，发给内核) 大小: %d, IP版本: %d, 前20字节: %x", len(elem.packet), elem.packet[0]>>4, elem.packet[:min(20, len(elem.packet))])
 
 			switch elem.packet[0] >> 4 {
 			case 4:
