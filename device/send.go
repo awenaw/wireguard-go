@@ -573,7 +573,20 @@ func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 				if peer.endpoint.val != nil {
 					endpointStr = peer.endpoint.val.DstToString()
 				}
-				device.log.Verbosef("[4. 发送] 外层UDP包 (加密后，发往公网) 大小: %d, 类型: %d, 目标: %s", len(elem.packet), msgType, endpointStr)
+				var msgDesc string
+				switch msgType {
+				case MessageInitiationType: // 1
+					msgDesc = "(握手请求)"
+				case MessageResponseType: // 2
+					msgDesc = "(握手响应)"
+				case MessageCookieReplyType: // 3
+					msgDesc = "(Cookie回复)"
+				case MessageTransportType: // 4
+					msgDesc = "(加密数据)"
+				default:
+					msgDesc = "(未知类型)"
+				}
+				device.log.Verbosef("[4. 发送] 外层UDP包 %s 大小: %d, 类型: %d, 目标: %s", msgDesc, len(elem.packet), msgType, endpointStr)
 			}
 		}
 

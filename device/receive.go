@@ -139,8 +139,22 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 			packet := bufsArrs[i][:size]
 			msgType := binary.LittleEndian.Uint32(packet[:4])
 
+			var msgDesc string
+			switch msgType {
+			case MessageInitiationType: // 1
+				msgDesc = "(握手请求)"
+			case MessageResponseType: // 2
+				msgDesc = "(握手响应)"
+			case MessageCookieReplyType: // 3
+				msgDesc = "(Cookie回复)"
+			case MessageTransportType: // 4
+				msgDesc = "(加密数据)"
+			default:
+				msgDesc = "(未知类型)"
+			}
+
 			// aw-开荒: 打印收到的 UDP 包
-			device.log.Verbosef("[1. 接收] 外层UDP包 (加密数据) 大小: %d, 类型: %d, 来源: %s", size, msgType, endpoints[i].DstToString())
+			device.log.Verbosef("[1. 接收] 外层UDP包 %s 大小: %d, 类型: %d, 来源: %s", msgDesc, size, msgType, endpoints[i].DstToString())
 
 			switch msgType {
 
