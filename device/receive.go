@@ -68,7 +68,7 @@ func (peer *Peer) keepKeyFreshReceiving() {
 }
 
 /* Receives incoming datagrams for the device
- * aw-开荒: [收发室 - 总分拣中心]
+ * aw-开荒: [收发室 - 总分拣中心]，数据从公网 UDP 端口流入
  * 核心逻辑：这个函数是 WireGuard 数据流入的第一站，负责从 UDP 端口高吞吐地收包。
  * 它不进行繁重的解密工作，只负责 IO 和分发，采用 Recv -> Sort -> Dispatch 三部曲：
  *
@@ -146,7 +146,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 
 			// check size of packet
 
-			packet := bufsArrs[i][:size]
+			packet := bufsArrs[i][:size]                      // 拿第 i 个包的数据，截取前 size 个字节（bufsArrs是固定大小的，所以要截取）
 			msgType := binary.LittleEndian.Uint32(packet[:4]) // 解析前4字节: 消息类型
 
 			var msgDesc string

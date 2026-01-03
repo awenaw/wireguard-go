@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"sort"
@@ -71,6 +72,33 @@ func NewWebUI(device *Device, addr string) *WebUI {
 // Start 启动 Web UI 服务器
 func (ui *WebUI) Start() error {
 	ui.device.log.Verbosef("WebUI server starting on %s", ui.server.Addr)
+
+	// 启动 UDP Echo Server (用于测试 UDP 连通性)
+	go func() {
+		addr, err := net.ResolveUDPAddr("udp", ":8090")
+		if err != nil {
+			ui.device.log.Errorf("UDP Echo define addr error: %v", err)
+			return
+		}
+		conn, err := net.ListenUDP("udp", addr)
+		if err != nil {
+			ui.device.log.Errorf("UDP Echo listen error: %v", err)
+			return
+		}
+		defer conn.Close()
+		ui.device.log.Verbosef("UDP Echo Server listening on :8090")
+
+		buf := make([]byte, 1024)
+		for {
+			_, remoteAddr, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				continue
+			}
+			// 回复固定的 Hello 消息
+			conn.WriteToUDP([]byte("hello,from udp!"), remoteAddr)
+		}
+	}()
+
 	go func() {
 		if err := ui.server.ListenAndServe(); err != http.ErrServerClosed {
 			ui.device.log.Errorf("WebUI server error: %v", err)
