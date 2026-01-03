@@ -249,7 +249,7 @@ func main() {
 	logger.Verbosef("UAPI listener started")
 
 	// 启动 Web UI 服务器
-	webui := device.NewWebUI(dev, ":8080")
+	webui := device.NewWebUI(dev, "0.0.0.0:8080")
 	if err := webui.Start(); err != nil {
 		logger.Errorf("Failed to start WebUI: %v", err)
 	} else {

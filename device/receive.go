@@ -68,7 +68,14 @@ func (peer *Peer) keepKeyFreshReceiving() {
 }
 
 /* Receives incoming datagrams for the device
- * aw-开荒: [收货口]
+ * aw-开荒: [收发室 - 总分拣中心]
+ * 核心逻辑：这个函数是 WireGuard 数据流入的第一站，负责从 UDP 端口高吞吐地收包。
+ * 它不进行繁重的解密工作，只负责 IO 和分发，采用 Recv -> Sort -> Dispatch 三部曲：
+ *
+ * 1. [Recv] 收货: 调用 recv() 从内核批量收取 UDP 包 (Batching)
+ * 2. [Sort] 分拣: 根据包类型 (Type) 和 Index，将加密数据包按 Peer 归类；将握手包单独处理。
+ * 3. [Dispatch] 发货: 将分好类的加密包，批量推送到解密队列 (Decryption Queue) 供后台 Worker 并行处理。
+ *
  * Every time the bind is updated a new routine is started for
  * IPv4 and IPv6 (separately)
  */
@@ -84,32 +91,33 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 	device.log.Verbosef("Routine: receive incoming %s - started", recvName)
 
 	// receive datagrams until conn is closed
-
+	// 持续循环收包，直到连接关闭
 	var (
-		bufsArrs    = make([]*[MaxMessageSize]byte, maxBatchSize)
-		bufs        = make([][]byte, maxBatchSize)
+		bufsArrs    = make([]*[MaxMessageSize]byte, maxBatchSize) // 缓冲池指针数组 (存放这一批包的内存地址)
+		bufs        = make([][]byte, maxBatchSize)                // 字节切片视图 (recv函数直接写入这里)
 		err         error
-		sizes       = make([]int, maxBatchSize)
+		sizes       = make([]int, maxBatchSize) // 存放每个包的实际收到长度
 		count       int
-		endpoints   = make([]conn.Endpoint, maxBatchSize)
-		deathSpiral int
-		elemsByPeer = make(map[*Peer]*QueueInboundElementsContainer, maxBatchSize)
+		endpoints   = make([]conn.Endpoint, maxBatchSize)                          // 存放来源 IP:Port
+		deathSpiral int                                                            // 连续错误计数器 (用于指数退避)
+		elemsByPeer = make(map[*Peer]*QueueInboundElementsContainer, maxBatchSize) // 临时分拣车: 按 Peer 归类的待处理包裹
 	)
 
 	for i := range bufsArrs {
-		bufsArrs[i] = device.GetMessageBuffer()
+		bufsArrs[i] = device.GetMessageBuffer() // [内存分配] 从 Pool 借 128 个空盘子
 		bufs[i] = bufsArrs[i][:]
 	}
 
 	defer func() {
 		for i := 0; i < maxBatchSize; i++ {
 			if bufsArrs[i] != nil {
-				device.PutMessageBuffer(bufsArrs[i])
+				device.PutMessageBuffer(bufsArrs[i]) // [内存回收] 退出也没忘还盘子
 			}
 		}
 	}()
 
 	for {
+		// [Step 1: Recv] 调用内核 syscall 收包
 		count, err = recv(bufs, sizes, endpoints)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
@@ -119,6 +127,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 			if neterr, ok := err.(net.Error); ok && !neterr.Temporary() {
 				return
 			}
+			// 遇到错误进行简单的退避重试 (避免 CPU 空转)
 			if deathSpiral < 10 {
 				deathSpiral++
 				time.Sleep(time.Second / 3)
@@ -129,6 +138,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 		deathSpiral = 0
 
 		// handle each packet in the batch
+		// [Step 2: Sort] 遍历这一批收到的每一个包
 		for i, size := range sizes[:count] {
 			if size < MinMessageSize {
 				continue
@@ -137,7 +147,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 			// check size of packet
 
 			packet := bufsArrs[i][:size]
-			msgType := binary.LittleEndian.Uint32(packet[:4])
+			msgType := binary.LittleEndian.Uint32(packet[:4]) // 解析前4字节: 消息类型
 
 			var msgDesc string
 			switch msgType {
@@ -159,7 +169,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 			switch msgType {
 
 			// check if transport
-
+			// === 核心路径: 处理加密数据包 (Type 4) ===
 			case MessageTransportType:
 
 				// check size
@@ -169,31 +179,37 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 				}
 
 				// lookup key pair
-
+				// 解析 Receiver Index (4字节) -> 用来去查 "这包是发给谁的?"
 				receiver := binary.LittleEndian.Uint32(
 					packet[MessageTransportOffsetReceiver:MessageTransportOffsetCounter],
 				)
+				// [查表] 根据 Index 找到对应的 Keypair (里面包含了 Peer 信息)
 				value := device.indexTable.Lookup(receiver)
 				keypair := value.keypair
 				if keypair == nil {
+					// 查无此人，直接丢弃 (可能是过期连接或攻击包)
 					continue
 				}
 
 				// check keypair expiry
 
 				if keypair.created.Add(RejectAfterTime).Before(time.Now()) {
-					continue
+					continue // Keypair 过期，丢弃
 				}
 
-				// create work element
+				// create inbound element
+				// [入队准备] 找到是哪个 Peer 后，准备打包
 				peer := value.peer
-				elem := device.GetInboundElement()
+				elem := device.GetInboundElement() // 申请一个包装盒 struct
 				elem.packet = packet
-				elem.buffer = bufsArrs[i]
+				elem.buffer = bufsArrs[i] // 转移 Buffer 所有权! (注意: 下面 bufsArrs[i] 会置 nil)
 				elem.keypair = keypair
 				elem.endpoint = endpoints[i]
-				elem.counter = 0
+				elem.counter = 0 // 计数器暂时留空 (解密时再处理)
 
+				// group by peer
+				// [分拣逻辑] 把属于同一个 Peer 的包，归拢到一个 Container 里
+				// 这样可以减少 Channel 的锁竞争次数 (Batch Dispatch)
 				elemsForPeer, ok := elemsByPeer[peer]
 				if !ok {
 					elemsForPeer = device.GetInboundElementsContainer()
@@ -201,12 +217,15 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 					elemsByPeer[peer] = elemsForPeer
 				}
 				elemsForPeer.elems = append(elemsForPeer.elems, elem)
-				bufsArrs[i] = device.GetMessageBuffer()
+
+				// [关键指针重置] 因为 buffer 所有权已经交给 elem 了，
+				// 这里必须置 nil，防止 Go Runtime 或下面的逻辑重复回收它。
+				bufsArrs[i] = device.GetMessageBuffer() // 顺便为下一轮循环申请个新盘子
 				bufs[i] = bufsArrs[i][:]
 				continue
 
 			// otherwise it is a fixed size & handshake related packet
-
+			// === 辅助路径: 处理握手包 (Type 1, 2, 3) ===
 			case MessageInitiationType:
 				if len(packet) != MessageInitiationSize {
 					continue
@@ -227,6 +246,10 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 				continue
 			}
 
+			// handoff to handshake goroutine
+			// [VIP通道] 握手包不进解密队列，直接扔给握手协程
+			// device.queue.handshake <- ...
+
 			select {
 			case device.queue.handshake.c <- QueueHandshakeElement{
 				msgType:  msgType,
@@ -234,23 +257,33 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 				packet:   packet,
 				endpoint: endpoints[i],
 			}:
+				// [关键指针重置] 同上，Buffer 给别人了，这里要置空补新
 				bufsArrs[i] = device.GetMessageBuffer()
 				bufs[i] = bufsArrs[i][:]
 			default:
+				// [丢弃逻辑] 如果握手队列满了，直接丢弃该包，
+				// 防止阻塞主收包流程 (RoutineReceiveIncoming 必须保持高速运转)
 			}
 		}
+
+		// [Step 3: Dispatch] 批量派发
 		for peer, elemsContainer := range elemsByPeer {
 			if peer.isRunning.Load() {
+				// [双重通知]
+				// 1. peer.queue.inbound: 通知 Peer 专属队列 (用于保序/流控)
+				// 2. device.queue.decryption: 扔进公用解密池 (Worker 开始并行解密)
 				peer.queue.inbound.c <- elemsContainer
 				device.queue.decryption.c <- elemsContainer
 			} else {
+				// 如果 Peer 已停止，即便收到了包也无法处理
+				// [资源清理] 必须手动把 Container 里挂的所有 buffer 和 struct 都还回去
 				for _, elem := range elemsContainer.elems {
 					device.PutMessageBuffer(elem.buffer)
 					device.PutInboundElement(elem)
 				}
 				device.PutInboundElementsContainer(elemsContainer)
 			}
-			delete(elemsByPeer, peer)
+			delete(elemsByPeer, peer) // 清空分拣车，准备下一轮
 		}
 	}
 }
