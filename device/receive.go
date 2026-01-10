@@ -118,6 +118,13 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 
 	for {
 		// [Step 1: Recv] 调用内核 syscall 收包
+		// 假设网卡瞬间收到了 3 个包：
+		// 包A: 200 字节
+		// 包B: 50 字节
+		// 包C: 1200 字节
+		// 那么 recv 返回后：
+		// count = 3
+		// sizes = [200, 50, 1200, 0, 0, ...]
 		count, err = recv(bufs, sizes, endpoints)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
@@ -141,12 +148,16 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 		// [Step 2: Sort] 遍历这一批收到的每一个包
 		for i, size := range sizes[:count] {
 			if size < MinMessageSize {
+				// [过滤] 如果包太小（小于32字节），连协议头都装不下，直接丢弃
+				// MinMessageSize = 32 bytes (Type(4) + Receiver(4) + Nonce(8) + Tag(16))
+				// 任何合法的 WireGuard 包至少要有这么长。
+				// 静默丢弃也是为了防止主动回应导致的扫描探测 (Port Scanning)。
 				continue
 			}
 
 			// check size of packet
 
-			packet := bufsArrs[i][:size]                      // 拿第 i 个包的数据，截取前 size 个字节（bufsArrs是固定大小的，所以要截取）
+			packet := bufsArrs[i][:size]                      // 拿第 i 个包的数据(bufsArrs[i])，截取前 size 个字节（bufsArrs是固定大小的，所以要截取）
 			msgType := binary.LittleEndian.Uint32(packet[:4]) // 解析前4字节: 消息类型
 
 			var msgDesc string
@@ -226,6 +237,8 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 
 			// otherwise it is a fixed size & handshake related packet
 			// === 辅助路径: 处理握手包 (Type 1, 2, 3) ===
+			// 注意: 这些 case 只是在做"安检"(验证长度)。
+			// 如果验证通过，代码会继续向下运行，执行那个 select 语句把包扔进握手队列。
 			case MessageInitiationType:
 				if len(packet) != MessageInitiationSize {
 					continue
@@ -248,8 +261,10 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 
 			// handoff to handshake goroutine
 			// [VIP通道] 握手包不进解密队列，直接扔给握手协程
-			// device.queue.handshake <- ...
-
+			// 这里的 msgType 包含了:
+			// - Type 1 (Initiation): 握手发起
+			// - Type 2 (Response): 握手响应
+			// - Type 3 (CookieReply): 忙碌/抗攻击时的 Cookie 回复
 			select {
 			case device.queue.handshake.c <- QueueHandshakeElement{
 				msgType:  msgType,
@@ -482,6 +497,21 @@ func (device *Device) RoutineHandshake(id int) {
 // 数据进入你系统的最后一道防线
 // （是 “并行世界的收束点”。它像是一条流水线的最后一道工序，
 // 把大家七手八脚做好的零件，按编号一个个装箱。）
+// RoutineSequentialReceiver 是每个 Peer 独享的"检票口"。
+// 它的核心职责是：确保并行解密后的包，严格按照接收顺序写入 TUN 设备。
+//
+//  1. 为什么需要它？
+//     解密是乱序的（多核并行），但 TCP 协议要求有序。
+//     如果包 1 和包 2 同时解密，包 2 先解完，必须等包 1 好了后，按 1->2 顺序发给内核。
+//
+// 2. 怎么做到的？
+//   - 它从 peer.queue.inbound 取出 "任务单" (elemsContainer)。
+//   - "任务单"里的包顺序就是最初收到的顺序。
+//   - 遍历任务单：
+//   - elem.Lock(): 关键！尝试获取锁。
+//   - 如果 Worker 还没解密完，这就锁上了，我会死等 (Sleep)。
+//   - 如果 Worker 解密完了 (Unlock)，我就拿到锁，放行。
+//   - 这样就强行把乱序的解密结果，重新用串行锁给"捋直"了。
 func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 	device := peer.device
 	defer func() {
@@ -496,6 +526,7 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 		if elemsContainer == nil {
 			return
 		}
+		// [保序点 1] 拿到这一批包裹的清单，清单本身就是有序的
 		elemsContainer.Lock()
 		validTailPacket := -1
 		dataPacketReceived := false
