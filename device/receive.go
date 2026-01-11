@@ -303,6 +303,13 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 	}
 }
 
+// RoutineDecryption 是真正的"苦力工人协程"。
+// 它的工作极其枯燥且单纯：
+// 1. 从 Channel 抢单 (拿 container)。
+// 2. 埋头苦算 (ChaCha20-Poly1305 解密)。
+// 3. 完工打卡 (Unlock)，通知隔壁在这个 container 上死等的检票员。
+//
+// 这个函数会启动 CPU 核心数个 (GOMAXPROCS)，以此榨干多核性能。
 func (device *Device) RoutineDecryption(id int) {
 	var nonce [chacha20poly1305.NonceSize]byte
 
@@ -318,18 +325,25 @@ func (device *Device) RoutineDecryption(id int) {
 			// decrypt and release to consumer
 			var err error
 			elem.counter = binary.LittleEndian.Uint64(counter)
-			// copy counter to nonce
+			// copy counter to nonce (把 64位 Counter 填入 96位 Nonce 的后半段)
 			binary.LittleEndian.PutUint64(nonce[0x4:0xc], elem.counter)
+
+			// [核心动作] 调用 AEAD Open 进行解密验证
+			// elem.keypair 是之前在查表阶段就确定好的
 			elem.packet, err = elem.keypair.receive.Open( //aw-解密
-				content[:0],
-				nonce[:],
-				content,
-				nil,
+				content[:0], // dst: 原地解密，直接复用 content 的内存
+				nonce[:],    // nonce: 组合好的随机数
+				content,     // ciphertext: 密文
+				nil,         // additionalData: 无
 			)
 			if err != nil {
+				// 解密失败 (MAC 校验不过，或者数据损坏)
+				// 标记为 nil，消费者侧会将其丢弃
 				elem.packet = nil
 			}
 		}
+		// [完工] 解开 Container 的锁。
+		// 这一瞬间，正在 Sleep 的 RoutineSequentialReceiver 会被唤醒。
 		elemsContainer.Unlock()
 	}
 }
@@ -534,22 +548,27 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 		for i, elem := range elemsContainer.elems {
 			if elem.packet == nil {
 				// decryption failed
+				// 解密失败（被 Worker 丢弃的包），直接跳过
 				continue
 			}
 
+			// [防重放] 检查 Counter 是否在滑动窗口内
 			if !elem.keypair.replayFilter.ValidateCounter(elem.counter, RejectAfterMessages) {
 				continue
 			}
 
 			validTailPacket = i
+			// [密钥确认] 检查这把钥匙是否有效。如果是"下一把"新钥匙，会在此处瞬间扶正为"当前"钥匙
 			if peer.ReceivedWithKeypair(elem.keypair) {
-				peer.SetEndpointFromPacket(elem.endpoint)
-				peer.timersHandshakeComplete()
-				peer.SendStagedPackets()
+				peer.SetEndpointFromPacket(elem.endpoint) // [漫游] 对方 IP 变了？立刻更新！
+				peer.timersHandshakeComplete()            // 重置握手定时器
+				peer.SendStagedPackets()                  // 之前握手没好积压的包，赶紧发出去
 			}
 			rxBytesLen += uint64(len(elem.packet) + MinMessageSize)
 
 			if len(elem.packet) == 0 {
+				// Keepalive 包 (空负载)，到此为止，不需要发给内核
+				// ... (此处原有 Keepalive 日志逻辑省略，保留原代码) ...
 				// 获取完整公钥
 				peer.handshake.mutex.RLock()
 				fullKey := base64.StdEncoding.EncodeToString(peer.handshake.remoteStatic[:])
@@ -584,11 +603,14 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 			// aw-开荒: 打印解密后的明文 IP 包
 			device.log.Verbosef("[2. 进站] 内层IP包 (解密后，发给内核) 大小: %d, IP版本: %d, 前20字节: %x", len(elem.packet), elem.packet[0]>>4, elem.packet[:min(20, len(elem.packet))])
 
+			// [AllowedIPs 检查] Cryptokey Routing 核心
+			// 确保 Peer 发来的包源 IP 是他被允许拥有的 IP
 			switch elem.packet[0] >> 4 {
-			case 4:
+			case 4: // IPv4
 				if len(elem.packet) < ipv4.HeaderLen {
 					continue
 				}
+				// 从 IP 包中获取 IP 包长度
 				field := elem.packet[IPv4offsetTotalLength : IPv4offsetTotalLength+2]
 				length := binary.BigEndian.Uint16(field)
 				if int(length) > len(elem.packet) || int(length) < ipv4.HeaderLen {
@@ -597,9 +619,6 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 				elem.packet = elem.packet[:length]
 				src := elem.packet[IPv4offsetSrc : IPv4offsetSrc+net.IPv4len]
 				if device.allowedips.Lookup(src) != peer {
-					// 如果 Peer A 寄过来一个声称源 IP 是 192.168.1.1 的包，
-					// 但你的配置里 Peer A 只允许 10.166.0.0/24，
-					// WireGuard 会在这行（483/500行）毫不犹豫地把包销毁：
 					device.log.Verbosef("IPv4 packet with disallowed source address from %v", peer)
 					continue
 				}
@@ -626,6 +645,7 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 				continue
 			}
 
+			// 加入待写入列表
 			bufs = append(bufs, elem.buffer[:MessageTransportOffsetContent+len(elem.packet)])
 		}
 

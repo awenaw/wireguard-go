@@ -334,13 +334,27 @@ func (device *Device) RoutineReadFromTUN() { // aw-开荒: [读取 TUN]-发包
 
 func (peer *Peer) StagePackets(elems *QueueOutboundElementsContainer) {
 	for {
+		// [非阻塞入队]
+		// 这里使用 select + default 是 Go 实现"TrySend"的标准姿势。
+		// 为什么不用 if len(q) < cap(q)？因为并发环境下，if 判断后的一瞬间，
+		// 队列可能就被别人填满了，这时候再塞就会导致当前协程卡死(Block)。
+		// select 保证了原子性：要么瞬间塞进去，要么瞬间走 default，绝不等待。
 		select {
 		case peer.queue.staged <- elems:
 			return
 		default:
 		}
+
+		// [队满策略：挤掉最老的]
+		// 能走到这里，说明上面的入队失败了（队列满了）。
+		// 为什么不把读写写在一个 select 里？因为 Go 的 select 是随机的！
+		// 如果写在一起，队列没满的时候也可能随机走到"读出丢弃"的分支，那就乱套了。
+		// 必须分开写，实现"优先入队，失败再丢包"的逻辑。
 		select {
 		case tooOld := <-peer.queue.staged:
+			// "<-" 操作符会自动从 channel 头部弹出(Pop)数据。
+			// 因为 channel 是先进先出(FIFO)的，所以弹出的这一个肯定是"最老的"。
+			// 拿到它之后，我们不做处理直接回收内存，就等于把它"踢掉"了。
 			for _, elem := range tooOld.elems {
 				peer.device.PutMessageBuffer(elem.buffer)
 				peer.device.PutOutboundElement(elem)
@@ -353,55 +367,85 @@ func (peer *Peer) StagePackets(elems *QueueOutboundElementsContainer) {
 
 func (peer *Peer) SendStagedPackets() {
 top:
+	// [阶段 1: 准备与检查 (Pre-flight Checks)]
+	// 职责: 确保环境就绪，队列有货，设备在跑。
 	if len(peer.queue.staged) == 0 || !peer.device.isUp() {
 		return
 	}
 
+	// [握手检查 (Handshake Barrier)]
+	// 职责: 拿钥匙。如果还没握手成功，或者钥匙过期了，坚决不发。
+	// 1. 获取当前 Keypair。
+	// 2. 如果 Key 无效，触发握手 (SendHandshakeInitiation)，并保持包在队列中等待。
+	//    这是一个 Backpressure (背压) 机制，防止无密钥的空转加密。
 	keypair := peer.keypairs.Current()
 	if keypair == nil || keypair.sendNonce.Load() >= RejectAfterMessages || time.Since(keypair.created) >= RejectAfterTime {
-		// aw-开荒: [拦路虎]
-		// 发现没有密钥（没握手）？
-		// 1. 扣下当前的包（留在 staged 队列里）。
-		// 2. 发送“握手请求” (Handshake Initiation)。
 		peer.SendHandshakeInitiation(false)
 		return
 	}
 
+	// [阶段 2: 大循环出货 (The Loop)]
+	// 职责: 只要队列里有包，就一直用当前 Key 发送，直到队列空或者 Key 耗尽。
 	for {
+		// elemsContainerOOO (Out-Of-Order) 是用来处理 "Key Exhaustion" (2^64-1 Nonce 用光) 的。
+		// 在极端情况下，这批包的一部分可能用完了当前 Key 的 Nonce 配额，
+		// 必须把剩下的包收集到 OOO 容器里，重新塞回 Staged 队列，等下一个 Key 协商好了再发。
 		var elemsContainerOOO *QueueOutboundElementsContainer
 		select {
+		// [阶段 3: 出队 (De-queue)]
+		// 职责: 从暂存区 (Staged) 拿出一个完整的 Batch (最多128个包)。
 		case elemsContainer := <-peer.queue.staged:
 			i := 0
+			// [阶段 4: 遍历箱子与分配 (Iteration & Allocation)]
+			// 职责:
+			// 1. 绑定 Peer 和 Keypair。
+			// 2. 分配唯一的 Nonce (Atomic Add)。这是保序发送的基石。
+			// 3. 检查 Nonce 是否耗尽。
 			for _, elem := range elemsContainer.elems {
 				elem.peer = peer
+				// [分配身份证 (Assign Nonce)]
 				elem.nonce = keypair.sendNonce.Add(1) - 1
+
+				// [Key 耗尽检查 (Key Exhaustion)]
 				if elem.nonce >= RejectAfterMessages {
 					keypair.sendNonce.Store(RejectAfterMessages)
 					if elemsContainerOOO == nil {
 						elemsContainerOOO = peer.device.GetOutboundElementsContainer()
 					}
+					// 当前 Key 已废，剩下的包先存起来，等下一班车
 					elemsContainerOOO.elems = append(elemsContainerOOO.elems, elem)
 					continue
 				} else {
+					// 正常分配
 					elemsContainer.elems[i] = elem
 					i++
 				}
 
 				elem.keypair = keypair
 			}
+
+			// [阶段 5: 锁定与回炉 (Lock & Reschedule)]
+			// 职责:
+			// 1. 对容器加锁 (Mutex Lock)。确保下游的 SequentialSender 必须等待 Encryption 完成。
+			// 2. 裁剪掉被 OOO 剔除的元素。
+			// 3. 如果有 OOO 包，重新入队 (Re-Stage)。
 			elemsContainer.Lock()
 			elemsContainer.elems = elemsContainer.elems[:i]
 
 			if elemsContainerOOO != nil {
-				peer.StagePackets(elemsContainerOOO) // XXX: Out of order, but we can't front-load go chans
+				peer.StagePackets(elemsContainerOOO) // Re-queue the stragglers
 			}
 
 			if len(elemsContainer.elems) == 0 {
 				peer.device.PutOutboundElementsContainer(elemsContainer)
-				goto top
+				goto top // 这个 Batch 全军覆没(都OOO了)，重来
 			}
 
 			// add to parallel and sequential queue
+			// [阶段 6: 双通道分发 (Double Dispatch)]
+			// 职责: 将同一个 Container 分发给两个并行的消费者。
+			// 通道 1 (Outbound): 给 SequentialSender，它会由 Lock 阻塞，等加密完后负责按序物理发送。
+			// 通道 2 (Encryption): 给 RoutineEncryption (Worker Pool)，它们负责并发、乱序地进行 ChaCha20Poly1305 加密。
 			if peer.isRunning.Load() {
 				peer.queue.outbound.c <- elemsContainer
 				peer.device.queue.encryption.c <- elemsContainer
@@ -561,6 +605,11 @@ func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 		// aw-开荒: [出货口]
 		// 能走到这里，说明锁拿到了，包已经是加密好的密文 (Ciphertext) 了。
 		for _, elem := range elemsContainer.elems {
+			// [判断是否为心跳包]
+			// WireGuard 的 Keepalive 本质上就是一个 Payload 为 0 的加密数据包 (Type 4)。
+			// 它的总长度 = Header(16) + Poly1305 Tag(16) = 32 字节 (MessageKeepaliveSize)。
+			// 如果长度只有 32，说明它只是为了证明"我还活着且密钥有效"，不包含用户数据。
+			// 如果大于 32，说明里面有真正的用户数据 (dataSent = true)。
 			if len(elem.packet) != MessageKeepaliveSize {
 				dataSent = true
 			}
