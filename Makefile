@@ -1,31 +1,19 @@
-PREFIX ?= /usr
-DESTDIR ?=
-BINDIR ?= $(PREFIX)/bin
-export GO111MODULE := on
+.PHONY: build run clean
 
-all: generate-version-and-build
+# 输出的二进制文件名
+BINARY_NAME=wireguard-go
 
-MAKEFLAGS += --no-print-directory
+# 默认构建
+build:
+	@echo "正在编译 $(BINARY_NAME)..."
+	go build -o $(BINARY_NAME)
 
-generate-version-and-build:
-	@export GIT_CEILING_DIRECTORIES="$(realpath $(CURDIR)/..)" && \
-	tag="$$(git describe --dirty 2>/dev/null)" && \
-	ver="$$(printf 'package main\n\nconst Version = "%s"\n' "$$tag")" && \
-	[ "$$(cat version.go 2>/dev/null)" != "$$ver" ] && \
-	echo "$$ver" > version.go && \
-	git update-index --assume-unchanged version.go || true
-	@$(MAKE) wireguard-go
+# 编译并运行服务端 (需要 sudo 密码)
+run: build
+	@echo "正在启动服务端..."
+	sudo ./wg_config/start_server.sh
 
-wireguard-go: $(wildcard *.go) $(wildcard */*.go)
-	go build -v -o "$@"
-
-install: wireguard-go
-	@install -v -d "$(DESTDIR)$(BINDIR)" && install -v -m 0755 "$<" "$(DESTDIR)$(BINDIR)/wireguard-go"
-
-test:
-	go test ./...
-
+# 清理
 clean:
-	rm -f wireguard-go
-
-.PHONY: all clean test install generate-version-and-build
+	@echo "正在清理..."
+	rm -f $(BINARY_NAME)

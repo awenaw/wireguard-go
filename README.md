@@ -54,6 +54,20 @@ $ cd wireguard-go
 $ make
 ```
 
+## Quick Start (Debug Mode)
+
+To obtain the binary, configure the interface, and start the debug server with a single command:
+
+```bash
+$ make run
+```
+
+This will:
+1. Compile the code.
+2. Run `wg_config/start_server.sh` (requires `sudo` for network interface creation).
+3. Start the WireGuard controller on port `38200`.
+4. Start a Debug WebUI at `http://localhost:8080`.
+
 ## License
 
     Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.

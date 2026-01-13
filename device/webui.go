@@ -370,7 +370,7 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                 <p id="dev-pubkey">-</p>
             </div>
             <div class="info-card">
-                <h3>监听端口</h3>
+                <h3>UDP端口</h3>
                 <p id="dev-port">-</p>
             </div>
             <div class="info-card">
