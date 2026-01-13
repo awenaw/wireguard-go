@@ -25,6 +25,7 @@ type Timer struct {
 	isPending     bool
 }
 
+// 初始化 peer 关联的定时器
 func (peer *Peer) NewTimer(expirationFunction func(*Peer)) *Timer {
 	timer := &Timer{}
 	timer.Timer = time.AfterFunc(time.Hour, func() {
@@ -41,6 +42,7 @@ func (peer *Peer) NewTimer(expirationFunction func(*Peer)) *Timer {
 
 		expirationFunction(peer)
 	})
+	// 启动后马上停止，为了占坑
 	timer.Stop()
 	return timer
 }
