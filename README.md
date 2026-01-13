@@ -149,3 +149,17 @@ wg-quick up wg0
 *   **查看状态**: `wg show`
 *   **测试连通性**: `ping 10.166.0.1` (Ping Server)
 *   **节点互 Ping**: `ping 10.166.0.202` (前提是 Server 端已开启转发或配置了路由)
+
+### 5. 快速启动 (调试模式)
+
+一键编译并启动调试服务端（含 WebUI）：
+
+```bash
+$ make run
+```
+
+该命令将执行以下操作：
+1. 编译源代码。
+2. 运行 `wg_config/start_server.sh` (需要 sudo 创建网络接口)。
+3. 在端口 `38200` 启动 WireGuard 控制器。
+4. 在 `http://localhost:8080` 启动调试 WebUI。
