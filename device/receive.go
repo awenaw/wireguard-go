@@ -76,6 +76,7 @@ func (peer *Peer) keepKeyFreshReceiving() {
  * 2. [Sort] 分拣: 根据包类型 (Type) 和 Index，将加密数据包按 Peer 归类；将握手包单独处理。
  * 3. [Dispatch] 发货: 将分好类的加密包，批量推送到解密队列 (Decryption Queue) 供后台 Worker 并行处理。
  *
+ * ！这是个循环方法。当 wg 启动或者网络接口发生变成时会重新调用此方法。
  * Every time the bind is updated a new routine is started for
  * IPv4 and IPv6 (separately)
  */

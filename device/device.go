@@ -44,37 +44,37 @@ type Device struct {
 
 	// 网络层管理结构体
 	net struct {
-		stopping      sync.WaitGroup       // 网络协程停止等待组
-		sync.RWMutex                       // 保护网络配置的读写锁
-		bind          conn.Bind            // 网络绑定接口，处理UDP通信
-		netlinkCancel *rwcancel.RWCancel   // 网络链路监听器取消器
-		port          uint16               // 监听端口号
-		fwmark        uint32               // 防火墙标记值（0表示禁用）
-		brokenRoaming bool                 // 是否禁用漫游功能（处理某些网络环境下的问题）
+		stopping      sync.WaitGroup     // 网络协程停止等待组
+		sync.RWMutex                     // 保护网络配置的读写锁
+		bind          conn.Bind          // 网络绑定接口，处理UDP通信
+		netlinkCancel *rwcancel.RWCancel // 网络链路监听器取消器
+		port          uint16             // 监听端口号
+		fwmark        uint32             // 防火墙标记值（0表示禁用）
+		brokenRoaming bool               // 是否禁用漫游功能（处理某些网络环境下的问题）
 	}
 
 	// 静态身份管理结构体，存储设备的密钥对
 	staticIdentity struct {
-		sync.RWMutex                  // 保护密钥对的读写锁
-		privateKey NoisePrivateKey    // 设备的私钥，用于Noise协议握手
-		publicKey  NoisePublicKey     // 设备的公钥，对外标识身份
+		sync.RWMutex                 // 保护密钥对的读写锁
+		privateKey   NoisePrivateKey // 设备的私钥，用于Noise协议握手
+		publicKey    NoisePublicKey  // 设备的公钥，对外标识身份
 	}
 
 	// 对等体管理结构体
 	peers struct {
-		sync.RWMutex                        // 保护keyMap的读写锁
+		sync.RWMutex                          // 保护keyMap的读写锁
 		keyMap       map[NoisePublicKey]*Peer // 公钥到对等体的映射表
 	}
 
 	// 速率限制管理结构体
 	rate struct {
-		underLoadUntil atomic.Int64             // 负载状态截止时间（纳秒时间戳）
-		limiter        ratelimiter.Ratelimiter  // 速率限制器，防止DoS攻击
+		underLoadUntil atomic.Int64            // 负载状态截止时间（纳秒时间戳）
+		limiter        ratelimiter.Ratelimiter // 速率限制器，防止DoS攻击
 	}
 
-	allowedips    AllowedIPs     // 允许的IP地址范围管理器，用于路由决策
-	indexTable    IndexTable     // 索引表，用于快速查找握手和会话
-	cookieChecker CookieChecker  // Cookie检查器，用于DoS防护
+	allowedips    AllowedIPs    // 允许的IP地址范围管理器，用于路由决策
+	indexTable    IndexTable    // 索引表，用于快速查找握手和会话
+	cookieChecker CookieChecker // Cookie检查器，用于DoS防护
 
 	// 内存池管理结构体，用于高效的内存分配和回收
 	pool struct {
@@ -94,13 +94,13 @@ type Device struct {
 
 	// TUN隧道接口管理结构体
 	tun struct {
-		device tun.Device    // TUN设备接口，与操作系统网络栈交互
-		mtu    atomic.Int32  // 最大传输单元大小（原子操作）
+		device tun.Device   // TUN设备接口，与操作系统网络栈交互
+		mtu    atomic.Int32 // 最大传输单元大小（原子操作）
 	}
 
-	ipcMutex sync.RWMutex   // IPC操作互斥锁，保护配置变更
-	closed   chan struct{}  // 设备关闭信号通道
-	log      *Logger        // 日志记录器
+	ipcMutex sync.RWMutex  // IPC操作互斥锁，保护配置变更
+	closed   chan struct{} // 设备关闭信号通道
+	log      *Logger       // 日志记录器
 }
 
 // deviceState 表示设备的状态
@@ -153,7 +153,7 @@ func (device *Device) isUp() bool {
 func removePeerLocked(device *Device, peer *Peer, key NoisePublicKey) {
 	// 停止数据包的路由和处理
 	device.allowedips.RemoveByPeer(peer) // 从允许IP列表中移除该对等体的路由
-	peer.Stop()                         // 停止对等体的所有处理流程
+	peer.Stop()                          // 停止对等体的所有处理流程
 
 	// 从对等体映射表中移除
 	delete(device.peers.keyMap, key)
@@ -163,20 +163,21 @@ func removePeerLocked(device *Device, peer *Peer, key NoisePublicKey) {
 // 这是设备状态管理的核心方法，处理所有状态转换逻辑
 // 参数：
 //   - want: 期望的目标设备状态
+//
 // 返回：
 //   - error: 状态转换过程中的错误
 func (device *Device) changeState(want deviceState) (err error) {
 	// 获取状态锁，确保状态转换的原子性
 	device.state.Lock()
 	defer device.state.Unlock()
-	
+
 	old := device.deviceState() // 获取当前状态
 	if old == deviceStateClosed {
 		// 一旦关闭，永远关闭 - 这是不可逆的状态
 		device.log.Verbosef("Interface closed, ignored requested state %s", want)
 		return nil
 	}
-	
+
 	// 根据目标状态执行相应的转换操作
 	switch want {
 	case old:
@@ -199,7 +200,7 @@ func (device *Device) changeState(want deviceState) (err error) {
 			err = errDown // 如果之前没有错误，使用down操作的错误
 		}
 	}
-	
+
 	// 记录状态转换信息
 	device.log.Verbosef("Interface state was %s, requested %s, now %s", old, want, device.deviceState())
 	return
@@ -286,6 +287,7 @@ func (device *Device) IsUnderLoad() bool {
 // 更改私钥会影响所有现有的对等体连接，需要重新计算密钥材料
 // 参数：
 //   - sk: 新的私钥
+//
 // 返回：
 //   - error: 设置过程中的错误
 func (device *Device) SetPrivateKey(sk NoisePrivateKey) error {
@@ -338,7 +340,7 @@ func (device *Device) SetPrivateKey(sk NoisePrivateKey) error {
 	for _, peer := range lockedPeers {
 		peer.handshake.mutex.RUnlock()
 	}
-	
+
 	// 使所有对等体的当前密钥对过期，强制重新握手
 	for _, peer := range expiredPeers {
 		peer.ExpireCurrentKeypairs()
@@ -353,19 +355,20 @@ func (device *Device) SetPrivateKey(sk NoisePrivateKey) error {
 //   - tunDevice: TUN隧道设备接口，用于与操作系统网络栈交互
 //   - bind: 网络绑定接口，用于UDP通信
 //   - logger: 日志记录器
+//
 // 返回：
 //   - *Device: 完全初始化的WireGuard设备实例
 func NewDevice(tunDevice tun.Device, bind conn.Bind, logger *Logger) *Device {
 	// 创建设备实例并初始化基本状态
 	device := new(Device)
 	device.state.state.Store(uint32(deviceStateDown)) // 初始状态为关闭
-	device.closed = make(chan struct{})              // 创建关闭信号通道
+	device.closed = make(chan struct{})               // 创建关闭信号通道
 	device.log = logger
-	
+
 	// 初始化网络和TUN接口
 	device.net.bind = bind
 	device.tun.device = tunDevice
-	
+
 	// 获取并设置MTU（最大传输单元）
 	mtu, err := device.tun.device.MTU()
 	if err != nil {
@@ -373,7 +376,7 @@ func NewDevice(tunDevice tun.Device, bind conn.Bind, logger *Logger) *Device {
 		mtu = DefaultMTU // 使用默认MTU值
 	}
 	device.tun.mtu.Store(int32(mtu))
-	
+
 	// 初始化各种管理组件
 	device.peers.keyMap = make(map[NoisePublicKey]*Peer) // 对等体映射表
 	device.rate.limiter.Init()                           // 速率限制器
@@ -388,9 +391,9 @@ func NewDevice(tunDevice tun.Device, bind conn.Bind, logger *Logger) *Device {
 	device.queue.decryption = newInboundQueue()  // 入站解密队列
 
 	// 启动工作协程
-	cpus := runtime.NumCPU() // 获取CPU核心数
+	cpus := runtime.NumCPU()     // 获取CPU核心数
 	device.state.stopping.Wait() // 确保之前的停止操作已完成
-	
+
 	// 为每个CPU核心启动一组处理协程，实现并行处理
 	device.queue.encryption.wg.Add(cpus) // 为每个握手协程预留加密队列计数
 	for i := 0; i < cpus; i++ {
@@ -400,10 +403,10 @@ func NewDevice(tunDevice tun.Device, bind conn.Bind, logger *Logger) *Device {
 	}
 
 	// 启动TUN接口相关的协程
-	device.state.stopping.Add(1)         // 为TUN读取协程添加计数
-	device.queue.encryption.wg.Add(1)    // 为TUN读取协程预留加密队列计数
-	go device.RoutineReadFromTUN()        // TUN接口数据读取协程
-	go device.RoutineTUNEventReader()     // TUN接口事件监听协程
+	device.state.stopping.Add(1)      // 为TUN读取协程添加计数
+	device.queue.encryption.wg.Add(1) // 为TUN读取协程预留加密队列计数
+	go device.RoutineReadFromTUN()    // TUN接口数据读取协程
+	go device.RoutineTUNEventReader() // TUN接口事件监听协程
 
 	return device
 }
@@ -425,10 +428,11 @@ func (device *Device) BatchSize() int {
 // 这是一个线程安全的查找操作，使用读锁保护对等体映射表
 // 参数：
 //   - pk: 要查找的对等体的公钥
+//
 // 返回：
 //   - *Peer: 找到的对等体实例，如果不存在则返回nil
 func (device *Device) LookupPeer(pk NoisePublicKey) *Peer {
-	device.peers.RLock()   // 获取读锁，允许并发读取
+	device.peers.RLock() // 获取读锁，允许并发读取
 	defer device.peers.RUnlock()
 
 	return device.peers.keyMap[pk] // 从映射表中查找对等体
@@ -439,9 +443,9 @@ func (device *Device) LookupPeer(pk NoisePublicKey) *Peer {
 // 参数：
 //   - key: 要移除的对等体的公钥
 func (device *Device) RemovePeer(key NoisePublicKey) {
-	device.peers.Lock()   // 获取写锁，确保独占访问
+	device.peers.Lock() // 获取写锁，确保独占访问
 	defer device.peers.Unlock()
-	
+
 	// 查找并移除对等体
 	peer, ok := device.peers.keyMap[key]
 	if ok {
@@ -453,7 +457,7 @@ func (device *Device) RemovePeer(key NoisePublicKey) {
 // 这个操作会停止所有对等体的处理流程并清空整个对等体映射表
 // 通常在设备关闭或重置时调用
 func (device *Device) RemoveAllPeers() {
-	device.peers.Lock()   // 获取写锁，确保独占访问
+	device.peers.Lock() // 获取写锁，确保独占访问
 	defer device.peers.Unlock()
 
 	// 逐一移除所有对等体
@@ -472,21 +476,21 @@ func (device *Device) Close() {
 	// 获取所有必要的锁，确保关闭操作的原子性
 	device.state.Lock()
 	defer device.state.Unlock()
-	device.ipcMutex.Lock()   // 防止并发的IPC操作
+	device.ipcMutex.Lock() // 防止并发的IPC操作
 	defer device.ipcMutex.Unlock()
-	
+
 	// 检查设备是否已经关闭，避免重复关闭
 	if device.isClosed() {
 		return
 	}
-	
+
 	// 设置设备状态为已关闭，这个状态是不可逆的
 	device.state.state.Store(uint32(deviceStateClosed))
 	device.log.Verbosef("Device closing")
 
 	// 关闭TUN设备接口
 	device.tun.device.Close()
-	
+
 	// 执行设备关闭操作，关闭网络绑定和对等体
 	device.downLocked()
 
@@ -500,7 +504,7 @@ func (device *Device) Close() {
 	device.queue.encryption.wg.Done() // 减少加密队列的等待组计数
 	device.queue.decryption.wg.Done() // 减少解密队列的等待组计数
 	device.queue.handshake.wg.Done()  // 减少握手队列的等待组计数
-	
+
 	// 等待所有工作协程完全停止
 	device.state.stopping.Wait()
 
@@ -537,7 +541,7 @@ func (device *Device) SendKeepalivesToPeersWithCurrentKeypair() {
 		// 判断密钥对是否存在且在有效期内（未超过RejectAfterTime）
 		sendKeepalive := peer.keypairs.current != nil && !peer.keypairs.current.created.Add(RejectAfterTime).Before(time.Now())
 		peer.keypairs.RUnlock()
-		
+
 		// 如果密钥对有效，发送保活消息
 		if sendKeepalive {
 			peer.SendKeepalive()
@@ -552,17 +556,17 @@ func (device *Device) SendKeepalivesToPeersWithCurrentKeypair() {
 func closeBindLocked(device *Device) error {
 	var err error
 	netc := &device.net
-	
+
 	// 取消网络链路监听器
 	if netc.netlinkCancel != nil {
 		netc.netlinkCancel.Cancel()
 	}
-	
+
 	// 关闭网络绑定接口
 	if netc.bind != nil {
 		err = netc.bind.Close()
 	}
-	
+
 	// 等待所有网络相关的协程停止
 	netc.stopping.Wait()
 	return err
@@ -573,7 +577,7 @@ func closeBindLocked(device *Device) error {
 // 返回：
 //   - conn.Bind: 当前的网络绑定接口实例
 func (device *Device) Bind() conn.Bind {
-	device.net.Lock()   // 获取网络配置的互斥锁
+	device.net.Lock() // 获取网络配置的互斥锁
 	defer device.net.Unlock()
 	return device.net.bind
 }
@@ -582,10 +586,11 @@ func (device *Device) Bind() conn.Bind {
 // 防火墙标记用于标识由该设备发送的数据包，便于防火墙规则处理
 // 参数：
 //   - mark: 新的防火墙标记值（0表示禁用）
+//
 // 返回：
 //   - error: 设置过程中的错误
 func (device *Device) BindSetMark(mark uint32) error {
-	device.net.Lock()   // 获取网络配置的互斥锁
+	device.net.Lock() // 获取网络配置的互斥锁
 	defer device.net.Unlock()
 
 	// 检查是否有修改
@@ -614,9 +619,9 @@ func (device *Device) BindSetMark(mark uint32) error {
 
 // BindUpdate 更新设备的网络绑定，重新建立网络连接
 // 这个操作会关闭现有的套接字并创建新的连接
-// 通常在网络接口变化或配置更新时调用
+// 【【通常在网络接口变化或配置更新时调用】】
 func (device *Device) BindUpdate() error {
-	device.net.Lock()   // 获取网络配置的互斥锁
+	device.net.Lock() // 获取网络配置的互斥锁
 	defer device.net.Unlock()
 
 	// 关闭现有的套接字
@@ -633,7 +638,7 @@ func (device *Device) BindUpdate() error {
 	var err error
 	var recvFns []conn.ReceiveFunc // 接收函数列表
 	netc := &device.net
-
+	// [1. 核心] 调用底层 Bind 接口的 Open 方法，真正执行 UDP 监听
 	// 打开网络绑定，获取接收函数和实际端口
 	recvFns, netc.port, err = netc.bind.Open(netc.port)
 	if err != nil {
@@ -665,11 +670,12 @@ func (device *Device) BindUpdate() error {
 	device.peers.RUnlock()
 
 	// 启动接收协程
-	device.net.stopping.Add(len(recvFns))            // 为每个接收协程添加停止计数
-	device.queue.decryption.wg.Add(len(recvFns))     // 每个RoutineReceiveIncoming协程都会写入解密队列
-	device.queue.handshake.wg.Add(len(recvFns))      // 每个RoutineReceiveIncoming协程都会写入握手队列
-	
+	device.net.stopping.Add(len(recvFns))        // 为每个接收协程添加停止计数
+	device.queue.decryption.wg.Add(len(recvFns)) // 每个RoutineReceiveIncoming协程都会写入解密队列
+	device.queue.handshake.wg.Add(len(recvFns))  // 每个RoutineReceiveIncoming协程都会写入握手队列
+
 	batchSize := netc.bind.BatchSize() // 获取网络绑定的批处理大小
+	// [2. 启动] 只有监听成功后，才会为每个接收器启动收包协程
 	for _, fn := range recvFns {
 		// 为每个接收函数启动一个协程
 		go device.RoutineReceiveIncoming(batchSize, fn)
@@ -684,8 +690,8 @@ func (device *Device) BindUpdate() error {
 // 返回：
 //   - error: 关闭过程中的错误
 func (device *Device) BindClose() error {
-	device.net.Lock()                // 获取网络配置的互斥锁
-	err := closeBindLocked(device)   // 执行实际的关闭操作
+	device.net.Lock()              // 获取网络配置的互斥锁
+	err := closeBindLocked(device) // 执行实际的关闭操作
 	device.net.Unlock()
 	return err
 }
