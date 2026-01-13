@@ -204,6 +204,7 @@ func (device *Device) IpcSetOperation(r io.Reader) (err error) {
 	return nil
 }
 
+// 当外部通过 UAPI (如 wg 命令) 修改 WireGuard 接口本身的配置（如私钥、监听端口）时触发。
 func (device *Device) handleDeviceLine(key, value string) error {
 	switch key {
 	case "private_key":

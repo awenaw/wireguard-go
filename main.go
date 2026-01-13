@@ -110,7 +110,8 @@ func main() {
 	}()
 
 	// open TUN device (or use supplied fd)
-
+	// [1. 第一板斧] 创建 TUN 设备 (向 OS 申请虚拟网卡)
+	// 这一步做完，你的电脑上就多了一个名为 interfaceName (如 utun1) 的网口
 	tdev, err := func() (tun.Device, error) {
 		tunFdStr := os.Getenv(ENV_WG_TUN_FD)
 		if tunFdStr == "" {
@@ -175,7 +176,7 @@ func main() {
 		return
 	}
 	// daemonize the process
-
+	// [0. 守护进程化] 如果未指定前台模式，则通过重新执行程序(fork)转入后台运行
 	if !foreground {
 		env := os.Environ()
 		env = append(env, fmt.Sprintf("%s=3", ENV_WG_TUN_FD))
@@ -222,6 +223,9 @@ func main() {
 		return
 	}
 
+	// [2. 第二板斧] 初始化 WireGuard 核心 (组装机器)
+	// 将 虚拟网卡(tdev) + 网络绑定(bind) + 核心逻辑 组装在一起。
+	// 注意：此时 UDP 端口还没有被监听，设备处于 Down 状态。
 	dev := device.NewDevice(tdev, conn.NewDefaultBind(), logger)
 
 	logger.Verbosef("Device started")
@@ -229,6 +233,10 @@ func main() {
 	errs := make(chan error)
 	term := make(chan os.Signal, 1)
 
+	// [3. 第三板斧] 启动 UAPI 监听 (接通控制台)
+	// 监听一个 Unix Socket 文件，等待外部工具(如 wg) 发送配置指令。
+	//【【【ipc.UAPIListen 这种机制（基于 Unix Domain Socket 的 IPC），
+	// 是 Unix/Linux 世界中后台服务（Daemon）实现动态配置和实时控制的标准做法。】】】
 	uapi, err := ipc.UAPIListen(interfaceName, fileUAPI)
 	if err != nil {
 		logger.Errorf("Failed to listen on uapi socket: %v", err)
@@ -237,11 +245,14 @@ func main() {
 
 	go func() {
 		for {
+			// [3.1] 接受控制连接
 			conn, err := uapi.Accept()
 			if err != nil {
 				errs <- err
 				return
 			}
+			// [3.2] 处理控制指令
+			// 所有的 "设置私钥"、"设置监听端口(触发UDP监听)"、"添加Peer" 都在这里处理
 			go dev.IpcHandle(conn)
 		}
 	}()
