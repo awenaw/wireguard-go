@@ -400,6 +400,10 @@ func (device *Device) handlePeerLine(peer *ipcSetPeer, key, value string) error 
 		if peer.dummy {
 			return nil
 		}
+		// [动态路由] 运行时热更新 AllowedIPs，无需重启隧道
+		// 这是 WireGuard 支持动态网络策略的核心：
+		// - Insert: 允许该 Peer 发送/接收指定网段的流量
+		// - Remove: 撤销该 Peer 对指定网段的访问权限
 		if add {
 			device.allowedips.Insert(prefix, peer.Peer)
 		} else {

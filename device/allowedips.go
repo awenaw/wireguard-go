@@ -76,10 +76,17 @@ func (node *trieEntry) removeFromPeerEntries() {
 	}
 }
 
+// choose 决定在当前节点应该往左 (0) 还是往右 (1) 走。
+// 这是 Radix Trie 二叉分叉的核心：提取 IP 中第 (cidr+1) 位的值。
+// 例如：对于 /24 的节点，choose 会提取 IP 第 25 位来决定方向。
+// 实现原理：定位到 bitAtByte 指定的字节，右移 bitAtShift 位，取最低位。
 func (node *trieEntry) choose(ip []byte) byte {
 	return (ip[node.bitAtByte] >> node.bitAtShift) & 1
 }
 
+// maskSelf 清除 bits 中 CIDR 掩码之后的无效位。
+// 例如：192.168.1.137/24 会被规范化为 192.168.1.0/24。
+// 这确保了 Trie 节点的 bits 只包含有效的前缀部分，避免因主机位差异导致匹配失败。
 func (node *trieEntry) maskSelf() {
 	mask := net.CIDRMask(int(node.cidr), len(node.bits)*8)
 	for i := 0; i < len(mask); i++ {
@@ -87,8 +94,10 @@ func (node *trieEntry) maskSelf() {
 	}
 }
 
+// zeroizePointers 将节点的所有指针字段置为 nil。
+// 这是 GC 友好的做法：确保被删除的节点不会意外地阻止其他对象被回收。
+// 在 remove() 操作完成后调用，帮助 Go 的垃圾回收器更快地识别无用内存。
 func (node *trieEntry) zeroizePointers() {
-	// Make the garbage collector's life slightly easier
 	node.peer = nil
 	node.child[0] = nil
 	node.child[1] = nil
