@@ -120,7 +120,7 @@ func (node *trieEntry) nodePlacement(ip []byte, cidr uint8) (parent *trieEntry, 
 		}
 		// 根据 IP 地址的位，决定往左走还是往右走
 		bit := node.choose(ip)
-		node = node.child[bit]
+		node = node.child[bit] // 走位（继续移动）
 	}
 	return
 }
@@ -215,7 +215,7 @@ func (trie parentIndirection) insert(ip []byte, cidr uint8, peer *Peer) {
 
 	// 情况 4: 需要分裂 (Split)
 	// 公共前缀比 down 短，也比 newNode 短。
-	// 这意味着我们需要创建一个中间节点 (Glue Node) 来连接 newNode 和 down。
+	// 这意味着我们需要创建一个中间节点 (Glue Node) 来连接 newNode 和 down。（构造胶水节点）
 	node = &trieEntry{
 		bits:       append([]byte{}, newNode.bits...),
 		cidr:       cidr, // Split 点的 CIDR
@@ -395,6 +395,7 @@ func (table *AllowedIPs) Insert(prefix netip.Prefix, peer *Peer) {
 		parentIndirection{&table.IPv6, 2}.insert(ip[:], uint8(prefix.Bits()), peer)
 	} else if prefix.Addr().Is4() {
 		ip := prefix.Addr().As4()
+		// parentIndirection{&table.IPv4, 2}  ： 表示每次都初始化一次parentIndirection
 		parentIndirection{&table.IPv4, 2}.insert(ip[:], uint8(prefix.Bits()), peer)
 	} else {
 		panic(errors.New("inserting unknown address type"))
