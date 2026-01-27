@@ -609,6 +609,11 @@ func (device *Device) ConsumeMessageResponse(msg *MessageResponse) *Peer {
 /* Derives a new keypair from the current handshake state
  *
  */
+// BeginSymmetricSession 根据当前握手状态派生新的 Keypair。
+//
+// 1. 派生 (Derive): 利用握手中的 chainKey，生成一对 send/recv 密钥。
+// 2. 实例化 (Instantiate): 创建 Keypair 对象，初始化 ChaCha20Poly1305 AEAD。
+// 3. 轮替 (Rotate): 根据是 Initiator 还是 Responder，决定新 Keypair 放在哪里 (Current 还是 Next)。
 func (peer *Peer) BeginSymmetricSession() error {
 	device := peer.device
 	handshake := &peer.handshake
@@ -616,12 +621,16 @@ func (peer *Peer) BeginSymmetricSession() error {
 	defer handshake.mutex.Unlock()
 
 	// derive keys
+	// [Key 派生]
+	// 根据最后握手状态，决定谁是 Initiator，谁是 Responder。
+	// 这决定了 sendKey 和 recvKey 的分配方向 (A发B收，还是B发A收)。
 
 	var isInitiator bool
 	var sendKey [chacha20poly1305.KeySize]byte
 	var recvKey [chacha20poly1305.KeySize]byte
 
 	if handshake.state == handshakeResponseConsumed {
+		// 我是 Initiator (我收到了响应)
 		KDF2(
 			&sendKey,
 			&recvKey,
@@ -630,6 +639,7 @@ func (peer *Peer) BeginSymmetricSession() error {
 		)
 		isInitiator = true
 	} else if handshake.state == handshakeResponseCreated {
+		// 我是 Responder (我刚发出了响应)
 		KDF2(
 			&recvKey,
 			&sendKey,
@@ -642,14 +652,16 @@ func (peer *Peer) BeginSymmetricSession() error {
 	}
 
 	// zero handshake
-
+	// [握手复位]
+	// 密钥已经拿到，握手状态可以清空了，为下一次握手做准备。
 	setZero(handshake.chainKey[:])
 	setZero(handshake.hash[:]) // Doesn't necessarily need to be zeroed. Could be used for something interesting down the line.
 	setZero(handshake.localEphemeral[:])
 	peer.handshake.state = handshakeZeroed
 
 	// create AEAD instances
-
+	// [构建 Keypair]
+	// 初始化 ChaCha20-Poly1305 实例，从此刻起，数据包就可以被加解密了。
 	keypair := new(Keypair)
 	keypair.send, _ = chacha20poly1305.New(sendKey[:])
 	keypair.receive, _ = chacha20poly1305.New(recvKey[:])
@@ -664,11 +676,14 @@ func (peer *Peer) BeginSymmetricSession() error {
 	keypair.remoteIndex = peer.handshake.remoteIndex
 
 	// remap index
-
+	// [注册索引]
+	// 告诉全局索引表：以后收到 index = localIndex 的包，就用这个 Keypair 处理。
 	device.indexTable.SwapIndexForKeypair(handshake.localIndex, keypair)
 	handshake.localIndex = 0
 
 	// rotate key pairs
+	// [密钥安装与轮替]
+	// 这是最关键的步骤：新生成的 Keypair 应该放在哪里？
 
 	keypairs := &peer.keypairs
 	keypairs.Lock()
@@ -679,40 +694,86 @@ func (peer *Peer) BeginSymmetricSession() error {
 	current := keypairs.current
 
 	if isInitiator {
+		// === 情况 A：我是 Initiator ===
+		// “我很自信”。我收到了 Response，说明对方已经准备好了。
+		// 所以我立刻把新 Key 设为 【Current】，马上开始用它发包。
 		if next != nil {
+			// 如果 Next 槽位里还有个没转正的备胎，直接丢弃（它已经过时了）。
 			keypairs.next.Store(nil)
-			keypairs.previous = next
+			keypairs.previous = next // 把它降级为 previous 稍微顶一顶乱序包
 			device.DeleteKeypair(current)
 		} else {
 			keypairs.previous = current
 		}
-		device.DeleteKeypair(previous)
+		device.DeleteKeypair(previous) // 更老的 Key 销毁
 		keypairs.current = keypair
 	} else {
+		// === 情况 B：我是 Responder ===
+		// “我很保守”。我虽然发了 Response，但不知道对方收到没。
+		// 所以我先把新 Key 放在 【Next】 槽位（储君）。
+		// 我继续用 Current (老国王) 发包，直到收到对方用新 Key 发来的包（ReceivedWithKeypair 触发转正）。
 		keypairs.next.Store(keypair)
-		device.DeleteKeypair(next)
-		keypairs.previous = nil
+		device.DeleteKeypair(next) // 覆盖掉之前可能存在的 Next
+		keypairs.previous = nil    // 此时不需要 Previous，因为 Current 还是原来的
 		device.DeleteKeypair(previous)
 	}
 
 	return nil
 }
 
+// ReceivedWithKeypair 实现了接收方（responsor)的"被动转正"逻辑 (Key Confirmation)。
+//
+//  1. 为什么需要它？
+//     作为响应方(Responder)，虽然我们在发送 Handshake Response 时就已经计算出了新 Keypair，
+//     但我们不敢立刻使用它来加密发包。因为 UDP 是不可靠的，我们不知道发起方(Initiator)是否收到了这个 Response。
+//     如果我们贸然切换到新 Key，而 Response 丢了，发起方还在用老 Key 解密，通信就会中断。
+//     因此，我们把新 Key 暂存到 keypairs.next 中。
+//
+//  2. 什么时候触发？
+//     当我们收到发起方用新 Key 加密过来的第一个数据包时！
+//     这就证明发起方肯定收到了我们的 Response，并且已经切换到了新 Key。
+//     此时，我们就可以放心地将 next 晋升为 current，完成转正。
 func (peer *Peer) ReceivedWithKeypair(receivedKeypair *Keypair) bool {
 	keypairs := &peer.keypairs
 
+	// [第一道防线：快速检查]
+	// 大多数时候收到的都是用 current 加密的包。
+	// 如果收到的包不是用 next 里的钥匙加密的，直接返回 false。
+	// 这是一个高频路径，必须极快 (Atomic Load 无锁)。
 	if keypairs.next.Load() != receivedKeypair {
 		return false
 	}
+
+	// [第二道防线：加锁确认]
+	// 既然发现这把钥匙竟然是 next 里的那把，说明转正时刻到了。
+	// 加锁防止并发修改 (比如同时来了两个新 Key 的包)。
 	keypairs.Lock()
 	defer keypairs.Unlock()
+
+	// Double-check: 防止在获取锁的瞬间 keypairs.next 已经被其他 goroutine 修改或清空了
 	if keypairs.next.Load() != receivedKeypair {
 		return false
 	}
+
+	// === 【被动转正核心动作 Key Rotation】 ===
+
+	// 1. 老国王 (current) 退位，变成太上皇 (previous)
+	//    保留它是为了在短时间内继续接收可能乱序到达的旧包 (Grace Period)。
 	old := keypairs.previous
 	keypairs.previous = keypairs.current
+
+	// 2. 销毁更老的太上皇 (old)
+	//    此时 keypairs.previous 指向了刚才的 current，
+	//    那么原来那个 previous 就彻底没用了，从内存和索引表中抹除。
 	peer.device.DeleteKeypair(old)
+
+	// 3. 储君 (next) 登基，变成新国王 (current)
+	//    从此以后，我们发包也开始用这把新钥匙了！
 	keypairs.current = keypairs.next.Load()
+
+	// 4. 清空储君位 (next = nil)
+	//    在这个位置等待下一次握手产生的新 Key。
 	keypairs.next.Store(nil)
+
 	return true
 }

@@ -524,26 +524,29 @@ func (device *Device) RoutineEncryption(id int) {
 			fieldNonce := header[8:16]
 
 			// 1. 填写 UDP 头 (Type=4, ReceiverIndex, Nonce)
-			// 注意：nonce 已经在入队前分配好了，这里只是填进去
+			// 注意：nonce 已经在入队前分配好了 (在 SendStagedPackets 里)，这里只是填进去。
+			// ReceiverIndex 是告诉对方："这是发给你的第 [remoteIndex] 号连接的"。
 			binary.LittleEndian.PutUint32(fieldType, MessageTransportType)
 			binary.LittleEndian.PutUint32(fieldReceiver, elem.keypair.remoteIndex)
 			binary.LittleEndian.PutUint64(fieldNonce, elem.nonce)
 
 			// pad content to multiple of 16
 			// 2. 填充数据 (Padding)
-			// 为了对抗流量分析，把数据包长度对齐到 16 字节
+			// 为了对抗流量分析 (Traffic Analysis)，防止攻击者通过包大小猜测内容，
+			// 将数据包长度对齐到 16 字节 (ChaCha20 的 Block Size)。
 			paddingSize := calculatePaddingSize(len(elem.packet), int(device.tun.mtu.Load()))
 			elem.packet = append(elem.packet, paddingZeros[:paddingSize]...)
 
 			// encrypt content and release to consumer
 			// 3. 核心加密 (Seal) !
-			// 将 nonce 的后 8 字节填好 (前 4 字节是 0)
+			// 构造 12 字节的 Nonce: 前 4 字节为 0，后 8 字节为 Counter (sendNonce)。
 			binary.LittleEndian.PutUint64(nonce[4:], elem.nonce)
 
 			// 调用 ChaCha20-Poly1305 进行加密 + 认证
-			// header 作为 Associated Data (AD) 参与认证，但不被加密
+			// header 作为 Associated Data (AD) 参与认证，但不被加密。
+			// 这保证了包头 (包括 Counter) 不能被篡改。
 			elem.packet = elem.keypair.send.Seal(
-				header,      // dst: 结果直接写回 header 后面
+				header,      // dst: 结果直接写回 header 后面 (In-place encryption)
 				nonce[:],    // nonce
 				elem.packet, // plaintext
 				nil,         // additional data

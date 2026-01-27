@@ -191,11 +191,14 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 				}
 
 				// lookup key pair
-				// 解析 Receiver Index (4字节) -> 用来去查 "这包是发给谁的?"
+				// [Keypair 查找 (O(1))]
+				// WireGuard 在 UDP 头里明文写了 Receiver Index (4字节)。
+				// 我们直接用这个 Index 去全局 IndexTable 里查，瞬间就能找到：
+				// 1. 它是发给哪个 Peer 的？
+				// 2. 应该用哪把 Keypair 解密？ (包含 Key, Nonce, replayFilter 等)
 				receiver := binary.LittleEndian.Uint32(
 					packet[MessageTransportOffsetReceiver:MessageTransportOffsetCounter],
 				)
-				// [查表] 根据 Index 找到对应的 Keypair (里面包含了 Peer 信息)
 				value := device.indexTable.Lookup(receiver)
 				keypair := value.keypair
 				if keypair == nil {
@@ -204,24 +207,29 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 				}
 
 				// check keypair expiry
-
+				// [过期检查]
+				// 哪怕 Keypair 存在，如果它太老了 (超过 RejectAfterTime)，也不能用了。
+				// 强制丢弃，逼迫对方必须重新握手。
 				if keypair.created.Add(RejectAfterTime).Before(time.Now()) {
 					continue // Keypair 过期，丢弃
 				}
 
 				// create inbound element
-				// [入队准备] 找到是哪个 Peer 后，准备打包
+				// [入队打包]
+				// 既然找到了接收人 (Peer) 和钥匙 (Keypair)，就开始打包任务单。
 				peer := value.peer
 				elem := device.GetInboundElement() // 申请一个包装盒 struct
 				elem.packet = packet
-				elem.buffer = bufsArrs[i] // 转移 Buffer 所有权! (注意: 下面 bufsArrs[i] 会置 nil)
+				elem.buffer = bufsArrs[i] // [重要] 移交 Buffer 所有权! 这个 2KB 的内存块现在归 elem 管理了。
 				elem.keypair = keypair
 				elem.endpoint = endpoints[i]
-				elem.counter = 0 // 计数器暂时留空 (解密时再处理)
+				elem.counter = 0 // 计数器暂时留空 (解密 Worker 会从包头里读出来填进去)
 
 				// group by peer
-				// [分拣逻辑] 把属于同一个 Peer 的包，归拢到一个 Container 里
-				// 这样可以减少 Channel 的锁竞争次数 (Batch Dispatch)
+				// [按 Peer 归类 (Batching)]
+				// 我们不急着一个包一个包地往 Channel 里塞 (锁竞争太大)。
+				// 而是把属于同一个 Peer 的包先收集到 elemsByPeer 里的“临时分拣车”上。
+				// 等这一批系统调用收上来的包全部分拣完了，再一次性整车推给 Worker。
 				elemsForPeer, ok := elemsByPeer[peer]
 				if !ok {
 					elemsForPeer = device.GetInboundElementsContainer()
@@ -232,7 +240,8 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 
 				// [关键指针重置] 因为 buffer 所有权已经交给 elem 了，
 				// 这里必须置 nil，防止 Go Runtime 或下面的逻辑重复回收它。
-				bufsArrs[i] = device.GetMessageBuffer() // 顺便为下一轮循环申请个新盘子
+				// 同时为下一轮循环申请个新盘子，补齐 bufsArrs[i]。
+				bufsArrs[i] = device.GetMessageBuffer()
 				bufs[i] = bufsArrs[i][:]
 				continue
 
@@ -304,15 +313,15 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 	}
 }
 
-// RoutineDecryption 是真正的"苦力工人协程"。
+// RoutineDecryption 是真正的"苦力工人协程" (Decryption Workers)。
 // 它的工作极其枯燥且单纯：
 // 1. 从 Channel 抢单 (拿 container)。
 // 2. 埋头苦算 (ChaCha20-Poly1305 解密)。
-// 3. 完工打卡 (Unlock)，通知隔壁在这个 container 上死等的检票员。
+// 3. 完工打卡 (Unlock)，通知隔壁在这个 container 上死等的检票员 (RoutineSequentialReceiver)。
 //
 // 这个函数会启动 CPU 核心数个 (GOMAXPROCS)，以此榨干多核性能。
 func (device *Device) RoutineDecryption(id int) {
-	var nonce [chacha20poly1305.NonceSize]byte
+	var nonce [chacha20poly1305.NonceSize]byte // 96-bit (12-byte) Nonce 缓冲区
 
 	defer device.log.Verbosef("Routine: decryption worker %d - stopped", id)
 	device.log.Verbosef("Routine: decryption worker %d - started", id)
@@ -320,26 +329,31 @@ func (device *Device) RoutineDecryption(id int) {
 	for elemsContainer := range device.queue.decryption.c {
 		for _, elem := range elemsContainer.elems {
 			// split message into fields
+			// [解析 UDP 头]
+			// 提取其中的 Counter (8字节)，它对应加密时的 sendNonce。
 			counter := elem.packet[MessageTransportOffsetCounter:MessageTransportOffsetContent]
 			content := elem.packet[MessageTransportOffsetContent:]
 
 			// decrypt and release to consumer
 			var err error
 			elem.counter = binary.LittleEndian.Uint64(counter)
+
 			// copy counter to nonce (把 64位 Counter 填入 96位 Nonce 的后半段)
+			// 前 4 字节保持为 0，这必须与加密端完全一致。
 			binary.LittleEndian.PutUint64(nonce[0x4:0xc], elem.counter)
 
 			// [核心动作] 调用 AEAD Open 进行解密验证
-			// elem.keypair 是之前在查表阶段就确定好的
+			// elem.keypair 是之前在查表阶段就确定好的 (Lookup(receiverIndex))。
+			// 如果该 keypair 不对，或者数据被篡改，Open 会返回错误。
 			elem.packet, err = elem.keypair.receive.Open( //aw-解密
-				content[:0], // dst: 原地解密，直接复用 content 的内存
-				nonce[:],    // nonce: 组合好的随机数
+				content[:0], // dst: 原地解密，直接覆盖 content 的内存 (In-place decryption)
+				nonce[:],    // nonce: 重组后的随机数
 				content,     // ciphertext: 密文
-				nil,         // additionalData: 无
+				nil,         // additionalData: 无 (WireGuard V1 数据包不使用 AD)
 			)
 			if err != nil {
 				// 解密失败 (MAC 校验不过，或者数据损坏)
-				// 标记为 nil，消费者侧会将其丢弃
+				// 标记为 nil，消费者侧 (RoutineSequentialReceiver) 会发现它是 nil 并将其丢弃
 				elem.packet = nil
 			}
 		}
@@ -554,21 +568,29 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 			}
 
 			// [防重放] 检查 Counter 是否在滑动窗口内
+			// 如果 Counter 小于当前窗口下限，或者已经在窗口内被标记过（bitset），则视为重放攻击直接丢弃。
 			if !elem.keypair.replayFilter.ValidateCounter(elem.counter, RejectAfterMessages) {
 				continue
 			}
 
 			validTailPacket = i
-			// [密钥确认] 检查这把钥匙是否有效。如果是"下一把"新钥匙，会在此处瞬间扶正为"当前"钥匙
+			// [密钥确认 (Key Confirmation)]
+			// 检查这把钥匙是否有效。
+			// 如果这个包是用 keypairs.next (新协商好的储君 Key) 解密的，
+			// ReceivedWithKeypair 会瞬间将 next 晋升为 current (新国王继位)，
+			// 并把老的 current 降级为 previous (太上皇)。
+			// 这就是 Responder 端的"被动转正"逻辑触发点。
 			if peer.ReceivedWithKeypair(elem.keypair) {
 				peer.SetEndpointFromPacket(elem.endpoint) // [漫游] 对方 IP 变了？立刻更新！
 				peer.timersHandshakeComplete()            // 重置握手定时器
-				peer.SendStagedPackets()                  // 之前握手没好积压的包，赶紧发出去
+				peer.SendStagedPackets()                  // 之前因为没有 Key 而积压在队列里的包，现在赶紧发出去
 			}
 			rxBytesLen += uint64(len(elem.packet) + MinMessageSize)
 
 			if len(elem.packet) == 0 {
-				// Keepalive 包 (空负载)，到此为止，不需要发给内核
+				// Keepalive 包 (空负载)
+				// 它的唯一作用就是证明"我还活着"以及"我的 Key 是新的/有效的"。
+				// 到此为止，不需要发给内核。
 				// ... (此处原有 Keepalive 日志逻辑省略，保留原代码) ...
 				// 获取完整公钥
 				peer.handshake.mutex.RLock()
@@ -605,7 +627,10 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 			device.log.Verbosef("[2. 进站] 内层IP包 (解密后，发给内核) 大小: %d, IP版本: %d, 前20字节: %x", len(elem.packet), elem.packet[0]>>4, elem.packet[:min(20, len(elem.packet))])
 
 			// [AllowedIPs 检查] Cryptokey Routing 核心
-			// 确保 Peer 发来的包源 IP 是他被允许拥有的 IP
+			// 即使包解密成功了，也不代表就能发给内核。
+			// 必须检查：这个 Peer 是否被允许发送源 IP 为 src 的包？
+			// 比如：Peer A (10.0.0.2) 只能发 src=10.0.0.2 的包。如果他发了个 src=10.0.0.3 的包，
+			// 虽然解密成功（因为 Key 对了），但必须在这里无情丢弃。
 			switch elem.packet[0] >> 4 {
 			case 4: // IPv4
 				if len(elem.packet) < ipv4.HeaderLen {
