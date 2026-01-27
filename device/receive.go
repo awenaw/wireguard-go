@@ -168,7 +168,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 			case MessageResponseType: // 2
 				msgDesc = "(握手响应)"
 			case MessageCookieReplyType: // 3
-				msgDesc = "(Cookie回复)"
+				msgDesc = "(Cookie回复)" // 当服务端繁忙，会返回Cookie回复消息类型，客户端需要处理
 			case MessageTransportType: // 4
 				msgDesc = "(加密数据)"
 			default:

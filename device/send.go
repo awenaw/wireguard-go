@@ -192,6 +192,7 @@ func (device *Device) SendHandshakeCookie(initiatingElem *QueueHandshakeElement)
 	return nil
 }
 
+// aw: 每次发送完更新密钥，确保密钥有效
 func (peer *Peer) keepKeyFreshSending() {
 	keypair := peer.keypairs.Current()
 	if keypair == nil {
@@ -561,7 +562,7 @@ func (device *Device) RoutineEncryption(id int) {
 	}
 }
 
-// aw-开荒: [发货员]
+// 严格按顺序发送IP包
 // 每个 Peer 都有一个专门负责发货的协程。每个Peer 只有一个！
 // 它的职责是按照 nonce 的顺序，将加密好的数据包通过 UDP 发送出去。
 func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {

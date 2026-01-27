@@ -114,19 +114,22 @@ func (st *CookieChecker) CheckMAC2(msg, src []byte) bool {
 	return hmac.Equal(mac2[:], msg[smac2:])
 }
 
+// CreateReply 构造一个 Cookie 回复包 (Type 3)。
+// 当设备处于高负载 (Under Load) 状态时，会拒绝正常的握手并调用此方法给对方发个"小饼干"。
 func (st *CookieChecker) CreateReply(
-	msg []byte,
-	recv uint32,
-	src []byte,
+	msg []byte, // 原始握手请求包的内容
+	recv uint32, // 对方的 Index
+	src []byte, // 对方的 IP 地址 (Cookie 绑定的核心)
 ) (*MessageCookieReply, error) {
 	st.RLock()
 
-	// refresh cookie secret
-
+	// 1. 【Secret 定期轮换】
+	// 为了安全性，接收端维护一个随机的 Secret，每隔 2 分钟刷新一次。
+	// Cookie 的安全性完全基于这个 Secret。
 	if time.Since(st.mac2.secretSet) > CookieRefreshTime {
 		st.RUnlock()
 		st.Lock()
-		_, err := rand.Read(st.mac2.secret[:])
+		_, err := rand.Read(st.mac2.secret[:]) // 重新生成随机密钥
 		if err != nil {
 			st.Unlock()
 			return nil, err
@@ -136,8 +139,9 @@ func (st *CookieChecker) CreateReply(
 		st.RLock()
 	}
 
-	// derive cookie
-
+	// 2. 【推导 Cookie 内容】
+	// 无状态绑定：Cookie = MAC(key=Secret, input=SourceIP)
+	// 这样我们就把令牌和对方的 IP 强行锁死在一起了。
 	var cookie [blake2s.Size128]byte
 	func() {
 		mac, _ := blake2s.New128(st.mac2.secret[:])
@@ -145,23 +149,26 @@ func (st *CookieChecker) CreateReply(
 		mac.Sum(cookie[:0])
 	}()
 
-	// encrypt cookie
-
+	// 3. 【准备加密回复包】
 	size := len(msg)
-
 	smac2 := size - blake2s.Size128
 	smac1 := smac2 - blake2s.Size128
 
 	reply := new(MessageCookieReply)
-	reply.Type = MessageCookieReplyType
-	reply.Receiver = recv
+	reply.Type = MessageCookieReplyType // Type 3
+	reply.Receiver = recv               // 对方的索引
 
+	// 生成 24 字节长随机 Nonce (用于 XChaCha20)
 	_, err := rand.Read(reply.Nonce[:])
 	if err != nil {
 		st.RUnlock()
 		return nil, err
 	}
 
+	// 4. 【加密并加封】
+	// Cookie 本身是敏感信息，不能明文发。
+	// 使用 encryptionKey (由接收端公钥推导) 进行加密。
+	// 将原包的 MAC1 字段作为关联数据 (AD)，确保这个 Cookie 只能对应刚才那个过期的请求。
 	xchapoly, _ := chacha20poly1305.NewX(st.mac2.encryptionKey[:])
 	xchapoly.Seal(reply.Cookie[:0], reply.Nonce[:], cookie[:], msg[smac1:smac2])
 
