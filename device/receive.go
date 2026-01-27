@@ -421,14 +421,14 @@ func (device *Device) RoutineHandshake(id int) {
 
 			if device.IsUnderLoad() {
 
-				// verify MAC2 field
+				// verify MAC2 field--第一关：MAC2校验
 
 				if !device.cookieChecker.CheckMAC2(elem.packet, elem.endpoint.DstToBytes()) {
 					device.SendHandshakeCookie(&elem)
 					goto skip
 				}
 
-				// check ratelimiter
+				// check ratelimiter--第二关：限流保护
 
 				if !device.rate.limiter.Allow(elem.endpoint.DstIP()) {
 					goto skip
