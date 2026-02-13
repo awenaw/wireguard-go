@@ -16,11 +16,11 @@ import (
 	"unsafe"
 )
 
-// parentIndirection 封装了指向父节点指针的指针，以及该子节点是父节点的左子(0)还是右子(1)。
+// parentIndirection 被trieEntry引用。封装了指向父节点指针的指针，以及该子节点是父节点的左子(0)还是右子(1)。
 // 主要用于在删除节点时，能够方便地更新父节点的子节点指针。
 type parentIndirection struct {
-	parentBit     **trieEntry
-	parentBitType uint8 // 0 for left child, 1 for right child
+	parentBit     **trieEntry // 父节点对子节点的二级指针
+	parentBitType uint8       // 0 for left child, 1 for right child
 }
 
 // trieEntry 是 Radix Trie 中的一个节点。
@@ -216,6 +216,7 @@ func (trie parentIndirection) insert(ip []byte, cidr uint8, peer *Peer) {
 	// 情况 4: 需要分裂 (Split)
 	// 公共前缀比 down 短，也比 newNode 短。
 	// 这意味着我们需要创建一个中间节点 (Glue Node) 来连接 newNode 和 down。（构造胶水节点）
+	// node 就是胶水节点
 	node = &trieEntry{
 		bits:       append([]byte{}, newNode.bits...),
 		cidr:       cidr, // Split 点的 CIDR
@@ -235,10 +236,10 @@ func (trie parentIndirection) insert(ip []byte, cidr uint8, peer *Peer) {
 	node.child[bit] = newNode
 
 	// 将新的中间节点挂载到树上
-	if parent == nil {
+	if parent == nil { // 胶水节点作为根节点
 		node.parent = trie
 		*trie.parentBit = node
-	} else {
+	} else { // 判断胶水节点挂在父节点的左子还是右子
 		bit := parent.choose(node.bits)
 		node.parent = parentIndirection{&parent.child[bit], bit}
 		parent.child[bit] = node
