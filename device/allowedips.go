@@ -109,12 +109,14 @@ func (node *trieEntry) zeroizePointers() {
 //   - parent: 找到的最深层的匹配节点 (作为新节点的潜在父节点)
 //   - exact: 是否精确匹配了现有的节点 (即 IP 和 CIDR 完全一致)
 func (node *trieEntry) nodePlacement(ip []byte, cidr uint8) (parent *trieEntry, exact bool) {
-	// 循环下钻：只要当前节点不为空，且当前节点的 CIDR 小于我们要找的 CIDR (说明我们还要往更深处走)，
-	// 并且当前节点的前缀覆盖了我们的 IP，就继续往下找。
+	// 循环下钻，
+	// 同时满足以下条件：
+	// 1. 当前节点不为空；
+	// 2. 当前节点 CIDR(node.cidr) <= 准备插入节点的CIDR(cidr)；（这个条件绝对不能省，它确保了树的层级结构始终保持 父节点掩码 < 子节点掩码）
+	// 3. 当前节点和准备插入节点的 IP 的公共前缀长度 >= 当前节点的 CIDR(node.cidr)。
 	for node != nil && node.cidr <= cidr && commonBits(node.bits, ip) >= node.cidr {
 		parent = node
-		// 如果 CIDR 也完全一样，那就是精确匹配！
-		if parent.cidr == cidr {
+		if parent.cidr == cidr { // 如果 CIDR 也完全一样，那就是精确匹配！
 			exact = true
 			return
 		}
@@ -225,12 +227,12 @@ func (trie parentIndirection) insert(ip []byte, cidr uint8, peer *Peer) {
 	}
 	node.maskSelf()
 
-	// 挂载 down 节点
+	// 胶水节点（node)挂载 down 节点
 	bit := node.choose(down.bits)
 	down.parent = parentIndirection{&node.child[bit], bit}
 	node.child[bit] = down
 
-	// 挂载 newNode 节点
+	// 胶水节点（node)挂载 newNode 节点
 	bit = node.choose(newNode.bits)
 	newNode.parent = parentIndirection{&node.child[bit], bit}
 	node.child[bit] = newNode
