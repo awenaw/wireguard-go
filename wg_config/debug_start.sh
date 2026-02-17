@@ -60,7 +60,29 @@ MONITOR_PID=$!
 trap "kill $MONITOR_PID 2>/dev/null" EXIT
 
 
+# 5. 查找 dlv (Delve) 调试器路径
+DLV_BIN=$(which dlv || true)
+if [ -z "$DLV_BIN" ]; then
+    # 尝试在常见的 GOPATH/bin 中查找
+    GOPATH=$(go env GOPATH)
+    if [ -f "$GOPATH/bin/dlv" ]; then
+        DLV_BIN="$GOPATH/bin/dlv"
+    elif [ -f "$HOME/go/bin/dlv" ]; then
+        DLV_BIN="$HOME/go/bin/dlv"
+    else
+        echo "错误: 未找到 dlv (Delve 调试器)！"
+        echo "请先安装它 (推荐使用 Homebrew):"
+        echo "  brew install delve"
+        echo "或者使用 Go 安装:"
+        echo "  go install github.com/go-delve/delve/cmd/dlv@latest"
+        exit 1
+    fi
+fi
+
+# 确保 dlv 路径正确
+echo "使用调试器: $DLV_BIN"
+
 sudo WG_TUN_NAME_FILE="$(pwd)/wg_config/.tun_name" \
      LOG_LEVEL=debug \
-     /Users/hmini/go/bin/dlv exec ./wireguard-go-debug \
+     "$DLV_BIN" exec ./wireguard-go-debug \
      --headless --listen=:2345 --api-version=2 -- -f utun
