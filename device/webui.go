@@ -9,16 +9,21 @@
 package device
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"sort"
 	"strings"
 	"time"
 )
+
+const sessionCookieName = "wg_ui_session"
 
 // PeerInfo 对等体信息结构，用于 JSON 序列化
 type PeerInfo struct {
@@ -43,23 +48,39 @@ type DeviceInfo struct {
 
 // WebUI HTTP 服务器
 type WebUI struct {
-	device *Device
-	server *http.Server
+	device       *Device
+	server       *http.Server
+	passwordHash [32]byte
+	sessionToken string
 }
 
 // NewWebUI 创建 Web UI 服务器
 func NewWebUI(device *Device, addr string) *WebUI {
-	ui := &WebUI{device: device}
+	password := os.Getenv("WEBUI_PASSWORD")
+	if password == "" {
+		password = "admin" // 生产环境请务必设置环境变量
+	}
+
+	ui := &WebUI{
+		device:       device,
+		passwordHash: sha256.Sum256([]byte(password)),
+		sessionToken: fmt.Sprintf("%x", sha256.Sum256([]byte(time.Now().String()+password))),
+	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/status", ui.handleStatus)
-	mux.HandleFunc("/api/peers", ui.handlePeers)
-	mux.HandleFunc("/api/peer/add", ui.handlePeerAdd)
-	mux.HandleFunc("/api/peer/remove", ui.handlePeerRemove)
-	mux.HandleFunc("/api/config", ui.handleConfig)
-	mux.HandleFunc("/api/hello", ui.handleHello)
-	mux.HandleFunc("/docs", ui.handleDocs)
-	mux.HandleFunc("/", ui.handleIndex)
+
+	// 公共接口
+	mux.HandleFunc("/login", ui.handleLogin)
+
+	// 受保护接口 (包装中间件)
+	mux.HandleFunc("/api/status", ui.authMiddleware(ui.handleStatus))
+	mux.HandleFunc("/api/peers", ui.authMiddleware(ui.handlePeers))
+	mux.HandleFunc("/api/peer/add", ui.authMiddleware(ui.handlePeerAdd))
+	mux.HandleFunc("/api/peer/remove", ui.authMiddleware(ui.handlePeerRemove))
+	mux.HandleFunc("/api/config", ui.authMiddleware(ui.handleConfig))
+	mux.HandleFunc("/api/hello", ui.authMiddleware(ui.handleHello))
+	mux.HandleFunc("/docs", ui.authMiddleware(ui.handleDocs))
+	mux.HandleFunc("/", ui.authMiddleware(ui.handleIndex))
 
 	ui.server = &http.Server{
 		Addr:    addr,
@@ -67,6 +88,23 @@ func NewWebUI(device *Device, addr string) *WebUI {
 	}
 
 	return ui
+}
+
+// authMiddleware 认证中间件
+func (ui *WebUI) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(sessionCookieName)
+		if err != nil || cookie.Value != ui.sessionToken {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized"})
+				return
+			}
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
 }
 
 // Start 启动 Web UI 服务器
@@ -652,4 +690,104 @@ func (ui *WebUI) handleHello(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleLogin 处理登录逻辑和显示登录页
+func (ui *WebUI) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		password := r.FormValue("password")
+		hash := sha256.Sum256([]byte(password))
+
+		if subtle.ConstantTimeCompare(hash[:], ui.passwordHash[:]) == 1 {
+			http.SetCookie(w, &http.Cookie{
+				Name:     sessionCookieName,
+				Value:    ui.sessionToken,
+				Path:     "/",
+				HttpOnly: true,
+				MaxAge:   86400 * 7, // 7 天有效
+			})
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "/login?error=1", http.StatusFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	errorMsg := ""
+	if r.URL.Query().Get("error") != "" {
+		errorMsg = `<div style="background:rgba(239, 68, 68, 0.1); color:#ef4444; padding:12px; border-radius:8px; margin-bottom:20px; font-size:14px; text-align:center; border:1px solid rgba(239, 68, 68, 0.2);">密码错误，请重试</div>`
+	}
+
+	fmt.Fprint(w, `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - WireGuard Controller</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #0f172a;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #f1f5f9;
+        }
+        .login-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            padding: 40px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        h2 { text-align: center; margin-bottom: 8px; color: #38bdf8; font-size: 24px; }
+        p.subtitle { text-align: center; color: #64748b; font-size: 14px; margin-bottom: 30px; }
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 20px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus { border-color: #38bdf8; }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #0ea5e9;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background: #0284c7; }
+        .footer { text-align: center; margin-top: 24px; font-size: 12px; color: #475569; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h2>🛡️ 身份验证</h2>
+        <p class="subtitle">请输入访问密码以继续</p>
+        `+errorMsg+`
+        <form method="POST">
+            <input type="password" name="password" placeholder="访问密码" autofocus required>
+            <button type="submit">立即登录</button>
+        </form>
+        <div class="footer">Userspace WireGuard Controller</div>
+    </div>
+</body>
+</html>`)
 }
