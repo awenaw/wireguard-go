@@ -35,6 +35,7 @@ const (
 
 func printUsage() {
 	fmt.Printf("Usage: %s [-f/--foreground] INTERFACE-NAME\n", os.Args[0])
+	fmt.Printf("       %s -enroll JOIN-URL [INTERFACE-NAME]\n", os.Args[0])
 }
 
 func warning() {
@@ -68,12 +69,30 @@ func main() {
 
 	var foreground bool
 	var interfaceName string
-	if len(os.Args) < 2 || len(os.Args) > 3 {
+	if len(os.Args) < 2 || len(os.Args) > 4 { // Updated to allow up to 4 arguments for -enroll
 		printUsage()
 		return
 	}
 
 	switch os.Args[1] {
+	case "-enroll":
+		if len(os.Args) < 3 {
+			printUsage()
+			return
+		}
+		joinURL := os.Args[2]
+		interfaceName = "utun"
+		if len(os.Args) == 4 {
+			interfaceName = os.Args[3]
+		}
+
+		conf := &manager.Config{}
+		if err := conf.RemoteEnroll(joinURL); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ 注册失败: %v\n", err)
+			os.Exit(ExitSetupFailed)
+		}
+		// 注册成功后，设置后续运行参数
+		foreground = true
 
 	case "-f", "--foreground":
 		foreground = true

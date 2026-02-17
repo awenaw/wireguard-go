@@ -1,12 +1,15 @@
 package manager
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +37,7 @@ type SystemConfig struct {
 	WebPort        uint16 `json:"web_port"`        // Web 门户端口
 	InternalSubnet string `json:"internal_subnet"` // 内网网段 (如 10.0.0.1/24)
 	ListenPort     uint16 `json:"listen_port"`     // UDP 本地监听端口
+	IsClient       bool   `json:"is_client"`       // 标记是否为客户端
 }
 
 // IdentityConfig 服务端身份
@@ -46,6 +50,7 @@ type PeerRecord struct {
 	PublicKey  string   `json:"public_key"`  // 对等体公钥 (Base64)
 	Remark     string   `json:"remark"`      // 备注
 	AllowedIPs []string `json:"allowed_ips"` // 分配的内网 IP
+	Endpoint   string   `json:"endpoint"`    // 如果是连接上游，需要带端口
 }
 
 // Invite 邀请码记录
@@ -152,6 +157,9 @@ func (c *Config) ApplyToDevice(dev *device.Device) error {
 		uapi.WriteString(fmt.Sprintf("public_key=%s\n", b64ToHex(peer.PublicKey)))
 		for _, ip := range peer.AllowedIPs {
 			uapi.WriteString(fmt.Sprintf("allowed_ip=%s\n", ip))
+		}
+		if peer.Endpoint != "" {
+			uapi.WriteString(fmt.Sprintf("endpoint=%s\n", peer.Endpoint))
 		}
 	}
 
@@ -312,4 +320,73 @@ func (c *Config) RemoveInvite(token string) {
 			return
 		}
 	}
+}
+
+// RemoteEnroll 通过邀请链接或 Token 远程注册入网
+func (c *Config) RemoteEnroll(joinURL string) error {
+	var token, apiBase string
+
+	if strings.Contains(joinURL, "/join/") {
+		parsed, err := url.Parse(joinURL)
+		if err != nil {
+			return fmt.Errorf("invalid join URL: %w", err)
+		}
+		parts := strings.Split(parsed.Path, "/join/")
+		if len(parts) < 2 {
+			return fmt.Errorf("invalid join URL format")
+		}
+		token = parts[1]
+		apiBase = fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
+	} else {
+		return fmt.Errorf("please provide a full join URL (e.g., http://server:8080/join/TOKEN)")
+	}
+
+	fmt.Printf("🚀 正在尝试加入网络: %s\n", apiBase)
+
+	// 准备注册请求
+	reqBody, _ := json.Marshal(map[string]string{
+		"token": token,
+	})
+
+	resp, err := http.Post(apiBase+"/api/register", "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return fmt.Errorf("failed to connect to server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned error (status %d)", resp.StatusCode)
+	}
+
+	var reg struct {
+		Config struct {
+			PrivateKey string   `json:"private_key"`
+			Address    string   `json:"address"`
+			PublicKey  string   `json:"public_key"`
+			Endpoint   string   `json:"endpoint"`
+			AllowedIPs []string `json:"allowed_ips"`
+		} `json:"config"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&reg); err != nil {
+		return fmt.Errorf("failed to decode server response: %w", err)
+	}
+
+	// 将获取到的配置写入本地 Config
+	c.Identity.PrivateKey = reg.Config.PrivateKey
+	c.System.InternalSubnet = reg.Config.Address // 客户端保存自己的 IP
+	c.System.IsClient = true
+	c.Peers = []PeerRecord{
+		{
+			PublicKey:  reg.Config.PublicKey,
+			AllowedIPs: reg.Config.AllowedIPs, // 通常是 10.0.0.0/24
+			Remark:     "UPSTREAM_SERVER",
+			Endpoint:   reg.Config.Endpoint,
+		},
+	}
+
+	fmt.Printf("✅ 注册成功！分配 IP: %s\n", reg.Config.Address)
+	fmt.Printf("📡 服务端地址: %s\n", reg.Config.Endpoint)
+
+	// 保存配置
+	return SaveConfig(c)
 }
