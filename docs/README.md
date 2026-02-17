@@ -1,3 +1,14 @@
+## 运行依赖 (Dependencies)
+
+| 平台 (Platform) | 运行时依赖 (Runtime Deps) | 内核/系统要求 (System Requirements) |
+| :--- | :--- | :--- |
+| **Linux** (Debian/Ubuntu) | `wireguard-tools`, `iproute2` | 必须支持 TUN/TAP (`/dev/net/tun`)；**无需 5.6+ 内核** |
+| **macOS** | `wireguard-tools` (brew) | 原生支持 `utun` 接口 |
+| **FreeBSD / OpenBSD** | `wireguard-tools` | 支持 `tun` 接口 |
+| **编译环境** | `Go 1.22+`, `make` | 需要完整的 Go 编译工具链 |
+
+---
+
 ## 运行说明 (Running Instructions)
 
 本项目提供两种运行模式：标准快速运行和源码断点调试。
@@ -60,14 +71,10 @@ brew install delve
 
 3. **配置接口 (自动/手动)**
    
-   调试器连接成功后，服务端程序会继续运行。脚本会自动检测并执行配置脚本。
-   如果需要手动重新配置，可运行：
-   
    ```bash
    ./wg_config/debug_config.sh
    ```
 
----
 
 ## PVE Alpine 实验台配置 (wg-study)
 

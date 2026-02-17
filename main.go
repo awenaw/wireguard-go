@@ -18,6 +18,7 @@ import (
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/ipc"
+	"golang.zx2c4.com/wireguard/manager"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -228,6 +229,33 @@ func main() {
 	// 注意：此时 UDP 端口还没有被监听，设备处于 Down 状态。
 	dev := device.NewDevice(tdev, conn.NewDefaultBind(), logger)
 
+	// [2.1] 加载持久化配置 (Phase 2)
+	config, err := manager.LoadConfig()
+	if err != nil {
+		logger.Errorf("Failed to load config: %v", err)
+	} else {
+		// 确保身份存在 (小白友好)
+		if config.EnsureIdentity() {
+			if err := manager.SaveConfig(config); err != nil {
+				logger.Errorf("Failed to save auto-generated identity: %v", err)
+			} else {
+				logger.Verbosef("Auto-generated new server identity")
+			}
+		}
+
+		if err := config.ApplyToDevice(dev); err != nil {
+			logger.Errorf("Failed to apply config to device: %v", err)
+		} else {
+			logger.Verbosef("Persistent configuration applied successfully")
+			// 自动化配置网卡 IP 和 状态
+			if err := config.ConfigureInterface(interfaceName); err != nil {
+				logger.Errorf("Auto-config interface failed: %v (Try running with sudo)", err)
+			} else {
+				logger.Verbosef("Interface %s auto-configured", interfaceName)
+			}
+		}
+	}
+
 	logger.Verbosef("Device started")
 
 	errs := make(chan error)
@@ -259,9 +287,9 @@ func main() {
 
 	logger.Verbosef("UAPI listener started")
 
-	// 启动 Web UI 服务器
-	webui := device.NewWebUI(dev, "0.0.0.0:8080")
-	if err := webui.Start(); err != nil {
+	// 启动 Web UI (manager 包)
+	webUI := manager.NewWebUI(dev, config, ":8080")
+	if err := webUI.Start(); err != nil {
 		logger.Errorf("Failed to start WebUI: %v", err)
 	} else {
 		logger.Verbosef("WebUI available at http://localhost:8080")
@@ -271,16 +299,15 @@ func main() {
 
 	signal.Notify(term, unix.SIGTERM)
 	signal.Notify(term, os.Interrupt)
-
+	// 资源清理
 	select {
 	case <-term:
 	case <-errs:
-	case <-dev.Wait():
 	}
 
 	// clean up
 
-	webui.Stop()
+	webUI.Stop()
 	uapi.Close()
 	dev.Close()
 
