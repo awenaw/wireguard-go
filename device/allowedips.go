@@ -347,6 +347,11 @@ func (node *trieEntry) remove() {
 	// 【黑魔法环节】：向上追溯父节点。
 	// node.parent.parentBit 是一个二级指针，指向父节点的某个 child 槽位。
 	// 利用内存偏移反推父节点的起始指针地址。
+	// parent := (*trieEntry)
+	// (  unsafe.Pointer(uintptr(unsafe.Pointer(node.parent.parentBit))
+	// 		- unsafe.Offsetof(node.child)
+	// 		- unsafe.Sizeof(node.child[0])*uintptr(node.parent.parentBitType))
+	// )
 	parent := (*trieEntry)(unsafe.Pointer(uintptr(unsafe.Pointer(node.parent.parentBit)) - unsafe.Offsetof(node.child) - unsafe.Sizeof(node.child[0])*uintptr(node.parent.parentBitType)))
 
 	// 如果父节点还在关联 Peer，它必须留着。
