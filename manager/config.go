@@ -187,14 +187,22 @@ func (c *Config) ConfigureInterface(interfaceName string) error {
 			return fmt.Errorf("ifconfig %s failed: %w", interfaceName, err)
 		}
 
-		// 3. 核心路由补丁：给本机访问 10.0.0.1 设置回环路由
+		// 3. 路由修正：清理会覆盖隧道路由的旧 host 路由。
+		// 场景：本机曾作为服务端(10.x.x.1 -> lo0)，切换为客户端后若不删除该 host 路由，
+		// 访问 10.x.x.1 仍会命中 lo0 而不是 utun。
+		subnet := strings.Join(strings.Split(directIP, ".")[:3], ".") + ".0/24"
+		gateway := strings.Join(strings.Split(directIP, ".")[:3], ".") + ".1"
 		_ = exec.Command("route", "-q", "delete", "-host", directIP).Run()
-		if err := exec.Command("route", "-q", "add", "-host", directIP, "127.0.0.1").Run(); err != nil {
-			return fmt.Errorf("add host route failed: %w", err)
+		_ = exec.Command("route", "-q", "delete", "-host", gateway).Run()
+
+		// 服务端模式保留本机 host route 补丁，客户端模式不应回指 lo0。
+		if !c.System.IsClient {
+			if err := exec.Command("route", "-q", "add", "-host", directIP, "127.0.0.1").Run(); err != nil {
+				return fmt.Errorf("add host route failed: %w", err)
+			}
 		}
 
-		// 4. 子网路由：确保其余 10.0.0.x 地址走隧道
-		subnet := strings.Join(strings.Split(directIP, ".")[:3], ".") + ".0/24"
+		// 4. 子网路由：确保 10.x.x.0/24 走隧道
 		_ = exec.Command("route", "-q", "delete", "-net", subnet).Run()
 		if err := exec.Command("route", "-q", "add", "-net", subnet, "-interface", interfaceName).Run(); err != nil {
 			return fmt.Errorf("add subnet route failed: %w", err)
