@@ -678,8 +678,8 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                                 </div>
                             </div>
                             <div>
-                                <div class="label-small">有效至</div>
-                                <div class="handshake-time">${new Date(inv.expires_at).toLocaleTimeString()}</div>
+                                <div class="label-small">有效至 (24小时内)</div>
+                                <div class="handshake-time" style="color:#f8fafc;">${new Date(inv.expires_at).toLocaleString('zh-CN', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'})}</div>
                             </div>
                             <div style="text-align:right">
                                 <button class="tab-btn" style="background:#475569; color:white; border:none; padding:6px 12px; margin:0;" onclick="deleteInvite('${inv.token}')">撤回</button>
