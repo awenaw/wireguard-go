@@ -201,10 +201,10 @@ func (trie parentIndirection) insert(ip []byte, cidr uint8, peer *Peer) {
 	// 这种情况下，新节点成为了 down 节点的父节点。
 	if newNode.cidr == cidr {
 		bit := newNode.choose(down.bits)
-		down.parent = parentIndirection{&newNode.child[bit], bit}
-		newNode.child[bit] = down
+		down.parent = parentIndirection{&newNode.child[bit], bit} // 改变 down 的父亲
+		newNode.child[bit] = down                                 // newNode变为 down 的新父亲
 
-		if parent == nil {
+		if parent == nil { // 新节点直接晋升为整棵树的“新根节点”。
 			newNode.parent = trie
 			*trie.parentBit = newNode
 		} else {
@@ -263,7 +263,7 @@ func (node *trieEntry) lookup(ip []byte) *Peer {
 		// 注意：我们不会break，而是继续往下找，因为可能存在更长的前缀匹配 (Longest Prefix Match)。
 		// 例如：虽然匹配了 10.0.0.0/16，但底下可能还有一个更精确的 10.0.0.5/32。
 		if node.peer != nil {
-			found = node.peer
+			found = node.peer // 候选 Peer
 		}
 
 		// 如果已经匹配到了叶子节点的最深处 (例如 /32)，就不需要再往下走了。
@@ -300,48 +300,62 @@ func (table *AllowedIPs) EntriesForPeer(peer *Peer, cb func(prefix netip.Prefix)
 	}
 }
 
-// remove 从树中删除一个节点，并尝试压缩树结构 (合并空闲路径)。
+// remove 从树中删除一个节点，并执行“撤点并校”式的路径压缩逻辑。
+//
+// 无论删除还是路径合并，其终极目标只有两个：
+// 1. 节省空间：不留废节点。
+// 2. 保证连通性：不能把路拆断。
 func (node *trieEntry) remove() {
 	node.removeFromPeerEntries()
 	node.peer = nil
 
-	// 情况 1: 该节点还有两个孩子
-	// 即使删除了 peer，这个节点还得留着作为路标，不能删。
+	// 情况 1: 该节点还有两个孩子 (枢纽路标)
+	// 虽然删除了 peer 标志，但这个节点作为“十字路口”仍然必须存在，否则路人找不到它底下的两个儿子。
+	// 这里我们只“隐退” (peer = nil)，不“搬走”。
 	if node.child[0] != nil && node.child[1] != nil {
 		return
 	}
 
-	// 接下来逻辑是：如果节点删空了，就要把它从树里摘掉，并把它的孤儿孩子过继给爷爷。
+	// 接下来处理“只有一个孩子”或“没有孩子”的情况。
+	// 我们需要将唯一的幸存者（child，可能为 nil）过继给爷爷。
 	bit := 0
 	if node.child[0] == nil {
 		bit = 1
 	}
 	child := node.child[bit]
 
-	// 更新孙子节点的祖父指针
+	// 更新孙子节点的祖父指针：跳过当前节点，直接认爷爷。
 	if child != nil {
 		child.parent = node.parent
 	}
 
-	// 让爷爷直接指向孙子 (跳过当前节点)
+	// 权力移交：让爷爷的指针直接指向孙子。
 	*node.parent.parentBit = child
 
-	// 如果爷爷节点也变空了(没孩子了)或者不需要存在了，递归向上尝试压缩。
+	// 情况 2: 被删除节点曾有一个孩子 (One-child node)
+	// 既然已经把孩子成功过继给了爷爷，任务就完成了。
+	// 或者，如果当前节点本身就是整棵树的根 (parentBitType > 1)，也到此为止。
 	if node.child[0] != nil || node.child[1] != nil || node.parent.parentBitType > 1 {
 		node.zeroizePointers()
 		return
 	}
 
-	// 获取父节点对象 (通过 unsafe 指针偏移计算，因为 parentIndirection 不直接持有 parent 对象的指针)
-	// 这段 unsafe 代码是为了省内存，避免在每个节点里多存一个 *trieEntry 指针。
+	// 情况 3: 被删除节点原本是叶子节点 (Leaf node)
+	// 删掉叶子后，原本的父节点可能也变成了空壳（只有一个孩子且没有 Peer）。
+	// 我们需要尝试向上递归，把父节点也给“撤并”掉，以保持树的极致压缩。
+
+	// 【黑魔法环节】：向上追溯父节点。
+	// node.parent.parentBit 是一个二级指针，指向父节点的某个 child 槽位。
+	// 利用内存偏移反推父节点的起始指针地址。
 	parent := (*trieEntry)(unsafe.Pointer(uintptr(unsafe.Pointer(node.parent.parentBit)) - unsafe.Offsetof(node.child) - unsafe.Sizeof(node.child[0])*uintptr(node.parent.parentBitType)))
 
+	// 如果父节点还在关联 Peer，它必须留着。
 	if parent.peer != nil {
 		node.zeroizePointers()
 		return
 	}
 
-	// 父节点也是空的，继续合并
+	// 再次执行“撤点并校”：把你爸的另一个孩子（你的兄弟）向上过继给爷爷。
 	child = parent.child[node.parent.parentBitType^1]
 	if child != nil {
 		child.parent = parent.parent
