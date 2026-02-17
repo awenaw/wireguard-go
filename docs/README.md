@@ -1,3 +1,73 @@
+## 运行说明 (Running Instructions)
+
+本项目提供两种运行模式：标准快速运行和源码断点调试。
+
+### 1. 快速运行 (标准模式)
+
+一键编译并直接启动服务端（非断点调试）：
+
+```bash
+$ make run
+```
+
+该命令将执行以下操作：
+1. 编译源代码。
+2. 运行 `wg_config/start_server.sh` (需要 sudo 创建网络接口)。
+3. 在端口 `38200` 启动 WireGuard 控制器。
+4. 在 `http://localhost:8080` 启动调试 WebUI。
+
+### 2. 源码断点调试 (Source Debugging)
+
+使用 Delve 调试器进行源码级断点调试。
+
+#### 前置条件
+确保已安装 `dlv` (Delve) 调试器：
+```bash
+brew install delve
+```
+
+#### 启动步骤
+
+1. **启动调试服务端**
+   
+   ```bash
+   sudo ./wg_config/debug_start.sh
+   # 此时终端会显示: "Delve 监听: 127.0.0.1:2345" 并等待连接
+   ```
+
+2. **连接 VS Code**
+   
+   确保 `.vscode/launch.json` 包含以下配置：
+
+   ```json
+   {
+       "version": "0.2.0",
+       "configurations": [
+           {
+               "name": "Attach to WireGuard-Go",
+               "type": "go",
+               "request": "attach",
+               "mode": "remote",
+               "port": 2345,
+               "host": "127.0.0.1",
+               "apiVersion": 2
+           }
+       ]
+   }
+   ```
+   
+   然后按 `F5` 选择 **"Attach to WireGuard-Go"** 开始调试。
+
+3. **配置接口 (自动/手动)**
+   
+   调试器连接成功后，服务端程序会继续运行。脚本会自动检测并执行配置脚本。
+   如果需要手动重新配置，可运行：
+   
+   ```bash
+   ./wg_config/debug_config.sh
+   ```
+
+---
 
 ## PVE Alpine 实验台配置 (wg-study)
 
@@ -58,17 +128,3 @@ wg-quick up wg0
 *   **查看状态**: `wg show`
 *   **测试连通性**: `ping 10.166.0.1` (Ping Server)
 *   **节点互 Ping**: `ping 10.166.0.202` (前提是 Server 端已开启转发或配置了路由)
-
-### 5. 快速启动 (调试模式)
-
-一键编译并启动调试服务端（含 WebUI）：
-
-```bash
-$ make run
-```
-
-该命令将执行以下操作：
-1. 编译源代码。
-2. 运行 `wg_config/start_server.sh` (需要 sudo 创建网络接口)。
-3. 在端口 `38200` 启动 WireGuard 控制器。
-4. 在 `http://localhost:8080` 启动调试 WebUI。
