@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -552,8 +553,13 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                 </div>
                 
                 <div style="text-align:left; margin-bottom:25px;">
+                    <label style="color:#94a3b8; font-size:13px; font-weight:600;">服务端地址</label>
+                    <input type="text" id="enroll-server" placeholder="例如: 1.2.3.4:8080 或 http://vpn.example.com:8080" style="width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #334155; background: #0f172a; color: white; margin-top:8px;">
+                </div>
+
+                <div style="text-align:left; margin-bottom:25px;">
                     <label style="color:#94a3b8; font-size:13px; font-weight:600;">服务器 Endpoint</label>
-                    <input type="text" id="enroll-endpoint" placeholder="例如: 1.2.3.4:51820" style="width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #334155; background: #0f172a; color: white; margin-top:8px;">
+                    <input type="text" id="enroll-endpoint" placeholder="可选，例如: 1.2.3.4:51820（留空则由服务端下发）" style="width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #334155; background: #0f172a; color: white; margin-top:8px;">
                 </div>
                 
                 <button class="btn" style="margin-top:0;" onclick="goToEnroll()">开始入驻流程</button>
@@ -692,11 +698,15 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
 
         function goToEnroll() {
             const token = document.getElementById('enroll-token').value.trim();
+            const server = document.getElementById('enroll-server').value.trim();
             let endpoint = document.getElementById('enroll-endpoint').value.trim();
             if(!token) return alert('请填入邀请码');
+            if(!server) return alert('请填入服务端地址');
             
-            // 如果用户没填，自动从全局配置或当前主机合成一个
-            window.location.href = '/join/' + token + (endpoint ? '?endpoint=' + encodeURIComponent(endpoint) : '');
+            const params = new URLSearchParams();
+            params.set('server', server);
+            if (endpoint) params.set('endpoint', endpoint);
+            window.location.href = '/join/' + encodeURIComponent(token) + '?' + params.toString();
         }
 
         function showInviteQR(url, remark) {
@@ -769,7 +779,7 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
 
             const res = await fetch('/api/invites/generate', {
                 method: 'POST',
-                body: JSON.stringify({ remark, duration_hours: duration })
+                body: JSON.stringify({ remark, duration_hours: duration || 24 })
             });
             if (res.ok) {
                 document.getElementById('invite-remark').value = '';
@@ -1069,8 +1079,9 @@ func (ui *WebUI) handleInviteGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 彻底修正：确保 Duration 至少为 24 小时，且优先解析 JSON 字段
 	if req.Duration <= 0 {
-		req.Duration = 24 // 默认 24 小时
+		req.Duration = 24
 	}
 
 	token, err := ui.config.GenerateInvite(req.Remark, time.Duration(req.Duration)*time.Hour)
@@ -1119,6 +1130,7 @@ func (ui *WebUI) handleInviteRemove(w http.ResponseWriter, r *http.Request) {
 // RegisterRequest 注册请求
 type RegisterRequest struct {
 	Token     string `json:"token"`
+	Server    string `json:"server,omitempty"`     // 可选，客户端模式用于指定远端注册服务地址
 	PublicKey string `json:"public_key,omitempty"` // 可选，由客户端自生
 	Endpoint  string `json:"endpoint,omitempty"`   // 可选，手动覆盖 Endpoint
 }
@@ -1151,6 +1163,48 @@ func (ui *WebUI) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request"})
+		return
+	}
+
+	// 客户端入驻：由本机转发到用户指定的远端服务端执行真实注册
+	if strings.TrimSpace(req.Server) != "" {
+		serverBase, err := normalizeEnrollServer(req.Server)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid server address: " + err.Error()})
+			return
+		}
+
+		joinURL := fmt.Sprintf("%s/join/%s", serverBase, url.PathEscape(strings.TrimSpace(req.Token)))
+		if endpoint := strings.TrimSpace(req.Endpoint); endpoint != "" {
+			joinURL += "?endpoint=" + url.QueryEscape(endpoint)
+		}
+
+		if err := ui.config.RemoteEnroll(joinURL); err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Remote enroll failed: " + err.Error()})
+			return
+		}
+
+		if err := ui.config.ApplyToDevice(ui.device); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Apply enrolled config failed: " + err.Error()})
+			return
+		}
+
+		if len(ui.config.Peers) == 0 {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Remote enroll succeeded but peer data is empty"})
+			return
+		}
+
+		resp := RegisterResponse{Status: "ok"}
+		resp.Config.PrivateKey = ui.config.Identity.PrivateKey
+		resp.Config.Address = ui.config.System.InternalSubnet
+		resp.Config.PublicKey = ui.config.Peers[0].PublicKey
+		resp.Config.Endpoint = ui.config.Peers[0].Endpoint
+		resp.Config.AllowedIPs = ui.config.Peers[0].AllowedIPs
+		json.NewEncoder(w).Encode(resp)
 		return
 	}
 
@@ -1234,21 +1288,48 @@ func (ui *WebUI) handleRegister(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func normalizeEnrollServer(raw string) (string, error) {
+	addr := strings.TrimSpace(raw)
+	if addr == "" {
+		return "", fmt.Errorf("empty server")
+	}
+	if !strings.Contains(addr, "://") {
+		addr = "http://" + addr
+	}
+	u, err := url.Parse(addr)
+	if err != nil {
+		return "", err
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("missing host")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("unsupported scheme: %s", u.Scheme)
+	}
+	u.Path = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return fmt.Sprintf("%s://%s", u.Scheme, u.Host), nil
+}
+
 // handleJoin 处理邀请入网引导页
 // GET /join/{token}
 func (ui *WebUI) handleJoin(w http.ResponseWriter, r *http.Request) {
+	// 1. 精准提取
 	token := strings.TrimPrefix(r.URL.Path, "/join/")
-	endpointOverride := r.URL.Query().Get("endpoint")
-	if token == "" {
-		ui.renderJoinPortal(w)
-		return
-	}
+	token = strings.Trim(token, " /")
+	serverOverride := r.URL.Query().Get("server")
 
-	// 校验 Token（不消耗，只是查看）
-	invite, ok := ui.config.ValidateInvite(token)
-	if !ok {
-		ui.renderErrorPage(w, "邀请无效", "该邀请码已过期、已被使用或根本不存在。")
-		return
+	// 2. 校验
+	inviteRemark := "远端服务端"
+	if strings.TrimSpace(serverOverride) == "" {
+		invite, ok := ui.config.ValidateInvite(token)
+		if !ok {
+			ui.device.GetLogger().Errorf("邀请码无效或已过期: [%s]", token)
+			ui.renderErrorPage(w, "邀请无效", "该邀请码已过期、已被使用或根本不存在。")
+			return
+		}
+		inviteRemark = invite.Remark
 	}
 
 	html := `
@@ -1286,7 +1367,7 @@ func (ui *WebUI) handleJoin(w http.ResponseWriter, r *http.Request) {
 <body>
     <div class="glass-card">
         <div class="logo">WireGuard</div>
-        <div class="remark">您受邀加入网络：<strong>` + invite.Remark + `</strong></div>
+        <div class="remark">您受邀加入网络：<strong>` + inviteRemark + `</strong></div>
         
         <div id="action-area">
             <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">点击下方按钮，母舰将为您自动生成私钥并分配内网 IP。注册成功后，您将获得完整的 WireGuard 配置。</p>
@@ -1325,12 +1406,16 @@ func (ui *WebUI) handleJoin(w http.ResponseWriter, r *http.Request) {
             btn.innerText = '正在入驻...';
 
             try {
+                const params = new URLSearchParams(window.location.search);
+                const payload = { token: '` + token + `' };
+                const server = (params.get('server') || '').trim();
+                const endpoint = (params.get('endpoint') || '').trim();
+                if (server) payload.server = server;
+                if (endpoint) payload.endpoint = endpoint;
+
                 const res = await fetch('/api/register', {
                     method: 'POST',
-                    body: JSON.stringify({ 
-                        token: '` + token + `',
-                        endpoint: '` + endpointOverride + `'
-                    })
+                    body: JSON.stringify(payload)
                 });
                 const data = await res.json();
                 

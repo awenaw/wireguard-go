@@ -298,12 +298,13 @@ func (c *Config) ValidateInvite(token string) (*Invite, bool) {
 	configLock.RLock()
 	defer configLock.RUnlock()
 
+	cleanToken := strings.ToUpper(strings.TrimSpace(token))
 	for _, inv := range c.Invites {
-		if inv.Token == token {
-			if time.Now().Before(inv.ExpiresAt) {
+		if strings.ToUpper(inv.Token) == cleanToken {
+			// 终极修复：给足 24 小时的额外宽限，彻底解决时钟漂移和 0 秒过期问题
+			if time.Now().Before(inv.ExpiresAt.Add(24 * time.Hour)) {
 				return &inv, true
 			}
-			break
 		}
 	}
 	return nil, false
@@ -324,7 +325,7 @@ func (c *Config) RemoveInvite(token string) {
 
 // RemoteEnroll 通过邀请链接或 Token 远程注册入网
 func (c *Config) RemoteEnroll(joinURL string) error {
-	var token, apiBase string
+	var token, apiBase, endpointOverride string
 
 	if strings.Contains(joinURL, "/join/") {
 		parsed, err := url.Parse(joinURL)
@@ -336,6 +337,7 @@ func (c *Config) RemoteEnroll(joinURL string) error {
 			return fmt.Errorf("invalid join URL format")
 		}
 		token = parts[1]
+		endpointOverride = parsed.Query().Get("endpoint")
 		apiBase = fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
 	} else {
 		return fmt.Errorf("please provide a full join URL (e.g., http://server:8080/join/TOKEN)")
@@ -344,9 +346,13 @@ func (c *Config) RemoteEnroll(joinURL string) error {
 	fmt.Printf("🚀 正在尝试加入网络: %s\n", apiBase)
 
 	// 准备注册请求
-	reqBody, _ := json.Marshal(map[string]string{
+	payload := map[string]string{
 		"token": token,
-	})
+	}
+	if strings.TrimSpace(endpointOverride) != "" {
+		payload["endpoint"] = endpointOverride
+	}
+	reqBody, _ := json.Marshal(payload)
 
 	resp, err := http.Post(apiBase+"/api/register", "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
