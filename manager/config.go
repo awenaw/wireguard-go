@@ -180,19 +180,25 @@ func (c *Config) ConfigureInterface(interfaceName string) error {
 
 	if runtime.GOOS == "darwin" {
 		// 1. 系统清理：先解绑 lo0 上的别名
-		exec.Command("ifconfig", "lo0", "-alias", directIP).Run()
+		_ = exec.Command("ifconfig", "lo0", "-alias", directIP).Run()
 
 		// 2. 挂载网卡：设置 P2P 模式，让 10.0.0.1 属于 utun 接口
-		exec.Command("ifconfig", interfaceName, directIP, directIP, "netmask", "255.255.255.0", "up").Run()
+		if err := exec.Command("ifconfig", interfaceName, directIP, directIP, "netmask", "255.255.255.0", "up").Run(); err != nil {
+			return fmt.Errorf("ifconfig %s failed: %w", interfaceName, err)
+		}
 
 		// 3. 核心路由补丁：给本机访问 10.0.0.1 设置回环路由
-		exec.Command("route", "-q", "delete", "-host", directIP).Run()
-		exec.Command("route", "-q", "add", "-host", directIP, "127.0.0.1").Run()
+		_ = exec.Command("route", "-q", "delete", "-host", directIP).Run()
+		if err := exec.Command("route", "-q", "add", "-host", directIP, "127.0.0.1").Run(); err != nil {
+			return fmt.Errorf("add host route failed: %w", err)
+		}
 
 		// 4. 子网路由：确保其余 10.0.0.x 地址走隧道
 		subnet := strings.Join(strings.Split(directIP, ".")[:3], ".") + ".0/24"
-		exec.Command("route", "-q", "delete", "-net", subnet).Run()
-		exec.Command("route", "-q", "add", "-net", subnet, "-interface", interfaceName).Run()
+		_ = exec.Command("route", "-q", "delete", "-net", subnet).Run()
+		if err := exec.Command("route", "-q", "add", "-net", subnet, "-interface", interfaceName).Run(); err != nil {
+			return fmt.Errorf("add subnet route failed: %w", err)
+		}
 
 		return nil
 	}
@@ -200,9 +206,13 @@ func (c *Config) ConfigureInterface(interfaceName string) error {
 	if runtime.GOOS == "linux" {
 		// Linux 逻辑非常直接
 		// 1. 赋予 IP (ip addr add ...)
-		exec.Command("ip", "addr", "replace", ip, "dev", interfaceName).Run()
+		if err := exec.Command("ip", "addr", "replace", ip, "dev", interfaceName).Run(); err != nil {
+			return fmt.Errorf("ip addr replace failed: %w", err)
+		}
 		// 2. 启动网卡 (ip link set up ...)
-		exec.Command("ip", "link", "set", "up", "dev", interfaceName).Run()
+		if err := exec.Command("ip", "link", "set", "up", "dev", interfaceName).Run(); err != nil {
+			return fmt.Errorf("ip link up failed: %w", err)
+		}
 		return nil
 	}
 	return nil

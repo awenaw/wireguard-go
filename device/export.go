@@ -57,6 +57,10 @@ func (d *Device) GetAllowedIPs() *AllowedIPs {
 	return &d.allowedips
 }
 
+func (d *Device) GetInterfaceName() (string, error) {
+	return d.tun.device.Name()
+}
+
 // ========= Peer 暴露接口 =========
 
 func (p *Peer) GetPublicKey() string {

@@ -87,6 +87,7 @@ func NewWebUI(dev *device.Device, conf *Config, addr string) *WebUI {
 	mux.HandleFunc("/api/invites/list", ui.authMiddleware(ui.handleInviteList))
 	mux.HandleFunc("/api/invites/remove", ui.authMiddleware(ui.handleInviteRemove))
 	mux.HandleFunc("/api/system/config", ui.authMiddleware(ui.handleSystemConfig))
+	mux.HandleFunc("/api/enroll", ui.authMiddleware(ui.handleEnroll))
 	mux.HandleFunc("/api/register", ui.handleRegister) // 公开接口，通过 Token 鉴权
 	mux.HandleFunc("/api/hello", ui.authMiddleware(ui.handleHello))
 	mux.HandleFunc("/docs", ui.authMiddleware(ui.handleDocs))
@@ -562,7 +563,7 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                     <input type="text" id="enroll-endpoint" placeholder="可选，例如: 1.2.3.4:51820（留空则由服务端下发）" style="width: 100%; padding: 14px; border-radius: 12px; border: 1px solid #334155; background: #0f172a; color: white; margin-top:8px;">
                 </div>
                 
-                <button class="btn" style="margin-top:0;" onclick="goToEnroll()">开始入驻流程</button>
+                <button class="btn" style="margin-top:0;" onclick="goToEnroll()">立即自动入驻</button>
             </div>
         </section>
         
@@ -696,17 +697,26 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                 });
         }
 
-        function goToEnroll() {
+        async function goToEnroll() {
             const token = document.getElementById('enroll-token').value.trim();
             const server = document.getElementById('enroll-server').value.trim();
-            let endpoint = document.getElementById('enroll-endpoint').value.trim();
+            const endpoint = document.getElementById('enroll-endpoint').value.trim();
             if(!token) return alert('请填入邀请码');
             if(!server) return alert('请填入服务端地址');
-            
-            const params = new URLSearchParams();
-            params.set('server', server);
-            if (endpoint) params.set('endpoint', endpoint);
-            window.location.href = '/join/' + encodeURIComponent(token) + '?' + params.toString();
+
+            try {
+                const res = await fetch('/api/enroll', {
+                    method: 'POST',
+                    body: JSON.stringify({ token, server, endpoint })
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+
+                alert('自动入驻成功\nIP: ' + data.config.address + '\nEndpoint: ' + data.config.endpoint);
+                updateStatus();
+            } catch (e) {
+                alert('自动入驻失败: ' + e.message);
+            }
         }
 
         function showInviteQR(url, remark) {
@@ -1135,6 +1145,13 @@ type RegisterRequest struct {
 	Endpoint  string `json:"endpoint,omitempty"`   // 可选，手动覆盖 Endpoint
 }
 
+// EnrollRequest 客户端自动入驻请求
+type EnrollRequest struct {
+	Token    string `json:"token"`
+	Server   string `json:"server"`
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
 // RegisterResponse 注册成功返回的配置
 type RegisterResponse struct {
 	Status string `json:"status"`
@@ -1145,6 +1162,84 @@ type RegisterResponse struct {
 		Endpoint   string   `json:"endpoint"`              // 服务端地址
 		AllowedIPs []string `json:"allowed_ips"`           // 允许的网段
 	} `json:"config"`
+}
+
+// handleEnroll 客户端自动入驻（受保护接口）
+// POST /api/enroll
+func (ui *WebUI) handleEnroll(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Use POST"})
+		return
+	}
+
+	var req EnrollRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request"})
+		return
+	}
+
+	resp, status, err := ui.remoteEnrollToServer(req.Server, req.Token, req.Endpoint)
+	if err != nil {
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (ui *WebUI) remoteEnrollToServer(serverRaw, tokenRaw, endpointRaw string) (RegisterResponse, int, error) {
+	var resp RegisterResponse
+
+	token := strings.TrimSpace(tokenRaw)
+	if token == "" {
+		return resp, http.StatusBadRequest, fmt.Errorf("token is required")
+	}
+
+	serverBase, err := normalizeEnrollServer(serverRaw)
+	if err != nil {
+		return resp, http.StatusBadRequest, fmt.Errorf("invalid server address: %w", err)
+	}
+
+	joinURL := fmt.Sprintf("%s/join/%s", serverBase, url.PathEscape(token))
+	if endpoint := strings.TrimSpace(endpointRaw); endpoint != "" {
+		joinURL += "?endpoint=" + url.QueryEscape(endpoint)
+	}
+
+	if err := ui.config.RemoteEnroll(joinURL); err != nil {
+		return resp, http.StatusBadGateway, fmt.Errorf("remote enroll failed: %w", err)
+	}
+
+	if err := ui.config.ApplyToDevice(ui.device); err != nil {
+		return resp, http.StatusInternalServerError, fmt.Errorf("apply enrolled config failed: %w", err)
+	}
+
+	ifaceName, err := ui.device.GetInterfaceName()
+	if err != nil {
+		return resp, http.StatusInternalServerError, fmt.Errorf("get interface name failed: %w", err)
+	}
+	if err := ui.config.ConfigureInterface(ifaceName); err != nil {
+		return resp, http.StatusInternalServerError, fmt.Errorf("configure interface failed: %w", err)
+	}
+	if err := ui.device.Up(); err != nil {
+		return resp, http.StatusInternalServerError, fmt.Errorf("bring device up failed: %w", err)
+	}
+
+	if len(ui.config.Peers) == 0 {
+		return resp, http.StatusInternalServerError, fmt.Errorf("remote enroll succeeded but peer data is empty")
+	}
+
+	resp = RegisterResponse{Status: "ok"}
+	resp.Config.PrivateKey = ui.config.Identity.PrivateKey
+	resp.Config.Address = ui.config.System.InternalSubnet
+	resp.Config.PublicKey = ui.config.Peers[0].PublicKey
+	resp.Config.Endpoint = ui.config.Peers[0].Endpoint
+	resp.Config.AllowedIPs = ui.config.Peers[0].AllowedIPs
+	return resp, http.StatusOK, nil
 }
 
 // handleRegister 处理客户端入网注册
@@ -1168,42 +1263,12 @@ func (ui *WebUI) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	// 客户端入驻：由本机转发到用户指定的远端服务端执行真实注册
 	if strings.TrimSpace(req.Server) != "" {
-		serverBase, err := normalizeEnrollServer(req.Server)
+		resp, status, err := ui.remoteEnrollToServer(req.Server, req.Token, req.Endpoint)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Invalid server address: " + err.Error()})
+			w.WriteHeader(status)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-
-		joinURL := fmt.Sprintf("%s/join/%s", serverBase, url.PathEscape(strings.TrimSpace(req.Token)))
-		if endpoint := strings.TrimSpace(req.Endpoint); endpoint != "" {
-			joinURL += "?endpoint=" + url.QueryEscape(endpoint)
-		}
-
-		if err := ui.config.RemoteEnroll(joinURL); err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Remote enroll failed: " + err.Error()})
-			return
-		}
-
-		if err := ui.config.ApplyToDevice(ui.device); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Apply enrolled config failed: " + err.Error()})
-			return
-		}
-
-		if len(ui.config.Peers) == 0 {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Remote enroll succeeded but peer data is empty"})
-			return
-		}
-
-		resp := RegisterResponse{Status: "ok"}
-		resp.Config.PrivateKey = ui.config.Identity.PrivateKey
-		resp.Config.Address = ui.config.System.InternalSubnet
-		resp.Config.PublicKey = ui.config.Peers[0].PublicKey
-		resp.Config.Endpoint = ui.config.Peers[0].Endpoint
-		resp.Config.AllowedIPs = ui.config.Peers[0].AllowedIPs
 		json.NewEncoder(w).Encode(resp)
 		return
 	}
