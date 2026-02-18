@@ -309,9 +309,7 @@ func (node *trieEntry) remove() {
 	node.removeFromPeerEntries()
 	node.peer = nil
 
-	// 情况 1: 该节点还有两个孩子 (枢纽路标)
-	// 虽然删除了 peer 标志，但这个节点作为“十字路口”仍然必须存在，否则路人找不到它底下的两个儿子。
-	// 这里我们只“隐退” (peer = nil)，不“搬走”。
+	// 1、枢纽节点-不删除
 	if node.child[0] != nil && node.child[1] != nil {
 		return
 	}
