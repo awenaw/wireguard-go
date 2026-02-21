@@ -378,8 +378,7 @@ func (peer *Peer) SetEndpointFromPacket(endpoint conn.Endpoint) {
 	peer.endpoint.Lock()
 	defer peer.endpoint.Unlock()
 
-	// 如果禁用了漫游功能，则不更新端点
-	if peer.endpoint.disableRoaming {
+	if peer.endpoint.disableRoaming { // 如果禁用了漫游功能，则不更新端点
 		return
 	}
 
