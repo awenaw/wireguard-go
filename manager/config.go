@@ -31,13 +31,14 @@ type Config struct {
 
 // SystemConfig 系统级网络设置
 type SystemConfig struct {
-	PublicHost     string `json:"public_host"`     // WireGuard 公网 Host (IP 或域名)
-	PublicPort     uint16 `json:"public_port"`     // WireGuard 对外端口
-	WebHost        string `json:"web_host"`        // Web 门户 Host (如 vpn.com)
-	WebPort        uint16 `json:"web_port"`        // Web 门户端口
-	InternalSubnet string `json:"internal_subnet"` // 内网网段 (如 10.0.0.1/24)
-	ListenPort     uint16 `json:"listen_port"`     // UDP 本地监听端口
-	IsClient       bool   `json:"is_client"`       // 标记是否为客户端
+	PublicHost       string `json:"public_host"`       // WireGuard 公网 Host (IP 或域名)
+	PublicPort       uint16 `json:"public_port"`       // WireGuard 对外端口
+	WebHost          string `json:"web_host"`          // Web 门户 Host (如 vpn.com)
+	WebPort          uint16 `json:"web_port"`          // Web 门户端口
+	InternalSubnet   string `json:"internal_subnet"`   // 内网网段 (如 10.0.0.1/24)
+	ListenPort       uint16 `json:"listen_port"`       // UDP 本地监听端口
+	IsClient         bool   `json:"is_client"`         // 标记是否为客户端
+	DefaultKeepalive int    `json:"default_keepalive"` // 新 Peer 默认的 PersistentKeepalive (秒)
 }
 
 // IdentityConfig 服务端身份
@@ -47,10 +48,11 @@ type IdentityConfig struct {
 
 // PeerRecord 已注册的对等体记录
 type PeerRecord struct {
-	PublicKey  string   `json:"public_key"`  // 对等体公钥 (Base64)
-	Remark     string   `json:"remark"`      // 备注
-	AllowedIPs []string `json:"allowed_ips"` // 分配的内网 IP
-	Endpoint   string   `json:"endpoint"`    // 如果是连接上游，需要带端口
+	PublicKey           string   `json:"public_key"`           // 对等体公钥 (Base64)
+	Remark              string   `json:"remark"`               // 备注
+	AllowedIPs          []string `json:"allowed_ips"`          // 分配的内网 IP
+	Endpoint            string   `json:"endpoint"`             // 如果是连接上游，需要带端口
+	PersistentKeepalive int      `json:"persistent_keepalive"` // 持久保活间隔 (秒)，0 为关闭
 }
 
 // Invite 邀请码记录
@@ -161,6 +163,9 @@ func (c *Config) ApplyToDevice(dev *device.Device) error {
 		if peer.Endpoint != "" {
 			uapi.WriteString(fmt.Sprintf("endpoint=%s\n", peer.Endpoint))
 		}
+		if peer.PersistentKeepalive > 0 {
+			uapi.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", peer.PersistentKeepalive))
+		}
 	}
 
 	// 3. 执行注入
@@ -240,9 +245,11 @@ func (c *Config) SyncFromDevice(dev *device.Device) {
 	var newPeers []PeerRecord
 	dev.ForEachPeer(func(p *device.Peer) {
 		newPeers = append(newPeers, PeerRecord{
-			PublicKey:  p.GetPublicKey(),
-			Remark:     p.Remark,
-			AllowedIPs: p.GetAllowedIPList(),
+			PublicKey:           p.GetPublicKey(),
+			Remark:              p.Remark,
+			AllowedIPs:          p.GetAllowedIPList(),
+			Endpoint:            p.GetEndpoint(),
+			PersistentKeepalive: int(p.GetKeepaliveInterval()),
 		})
 	})
 	c.Peers = newPeers

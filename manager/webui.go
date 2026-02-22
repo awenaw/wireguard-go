@@ -501,7 +501,7 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
         <section id="sec-invites" style="display:none">
             <div style="background: rgba(16,185,129,0.05); padding: 24px; border-radius: 16px; border: 1px solid rgba(16,185,129,0.1); margin-bottom: 24px;">
                 <h3 style="margin-bottom: 16px; font-size: 16px; color:#10b981;">🌐 全局分发设置</h3>
-                <div style="display: grid; grid-template-columns: 2fr 1fr 2fr 1fr auto; gap: 12px; align-items: flex-end;">
+                <div style="display: grid; grid-template-columns: 2fr 1fr 2fr 1fr 1fr auto; gap: 12px; align-items: flex-end;">
                     <div>
                         <label style="color:#94a3b8; font-size:12px; margin-bottom:8px; display:block;">WireGuard Host</label>
                         <input type="text" id="sys-pub-host" placeholder="1.2.3.4" style="width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: white;">
@@ -518,9 +518,13 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                         <label style="color:#94a3b8; font-size:12px; margin-bottom:8px; display:block;">Port</label>
                         <input type="number" id="sys-web-port" placeholder="8080" style="width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: white;">
                     </div>
+                    <div>
+                        <label style="color:#94a3b8; font-size:12px; margin-bottom:8px; display:block;">Keepalive</label>
+                        <input type="number" id="sys-keepalive" placeholder="25" style="width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: white;">
+                    </div>
                     <button class="btn" style="margin-top:0; width: auto; padding: 12px 24px; background:#10b981;" onclick="saveSystemConfig()">保存</button>
                 </div>
-                <p style="color:#64748b; font-size:12px; margin-top:10px;">地址与端口已分离。生成的邀请链接将自动拼装协议与端口。</p>
+                <p style="color:#64748b; font-size:12px; margin-top:10px;">地址与端口已分离。Keepalive 为新注册客户端的默认保活间隔(秒)，推荐 25。</p>
             </div>
 
             <div style="background: rgba(255,255,255,0.05); padding: 24px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 24px;">
@@ -598,7 +602,8 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                     'sys-pub-host': config.public_host || '',
                     'sys-pub-port': config.public_port || '',
                     'sys-web-host': config.web_host || '',
-                    'sys-web-port': config.web_port || ''
+                    'sys-web-port': config.web_port || '',
+                    'sys-keepalive': config.default_keepalive || 25
                 };
                 Object.keys(fields).forEach(id => {
                     const el = document.getElementById(id);
@@ -624,7 +629,7 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                     document.getElementById('dev-count').innerText = data.peer_count;
 
                     const listHtml = data.peers.map(peer => ` + "`" + `
-                        <div class="peer-row">
+                        <div class="peer-row" style="grid-template-columns: 1.5fr 2fr 1.5fr 1fr 1fr 1.5fr;">
                             <div class="peer-main">
                                 <div class="status-dot ${peer.is_running ? 'online' : 'offline'}"></div>
                                 <div>
@@ -644,6 +649,14 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                                 <div class="traffic-box">
                                     <div class="label-small">接收</div>
                                     <div class="traffic-val">↓ ${formatBytes(peer.rx_bytes)}</div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="label-small">Keepalive</div>
+                                <div style="display:flex; align-items:center; gap:4px;">
+                                    <input type="number" id="ka-${peer.public_key.substring(0,8)}" value="${peer.keepalive_interval}" min="0" max="65535" style="width:50px; padding:4px; border-radius:6px; border:1px solid #334155; background:#0f172a; color:white; font-size:12px; text-align:center;">
+                                    <span style="color:#64748b; font-size:11px;">秒</span>
+                                    <button class="tab-btn" style="padding:3px 8px; font-size:10px; margin:0; background:rgba(56,189,248,0.1); color:#38bdf8; border-color:rgba(56,189,248,0.2);" onclick="setKeepalive('${peer.public_key}', document.getElementById('ka-${peer.public_key.substring(0,8)}').value)">设</button>
                                 </div>
                             </div>
                             <div>
@@ -765,6 +778,7 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
             const pubPort = parseInt(document.getElementById('sys-pub-port').value);
             const webHost = document.getElementById('sys-web-host').value.trim();
             const webPort = parseInt(document.getElementById('sys-web-port').value);
+            const keepalive = parseInt(document.getElementById('sys-keepalive').value);
             
             const res = await fetch('/api/system/config', {
                 method: 'POST',
@@ -772,7 +786,8 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                     public_host: pubHost,
                     public_port: pubPort || 51820,
                     web_host: webHost,
-                    web_port: webPort || 8080
+                    web_port: webPort || 8080,
+                    default_keepalive: keepalive || 25
                 })
             });
             if (res.ok) {
@@ -801,6 +816,20 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
         function copyLink(link) {
             navigator.clipboard.writeText(link);
             alert('链接已复制到剪贴板');
+        }
+
+        async function setKeepalive(pubkey, val) {
+            const interval = parseInt(val) || 0;
+            const hexKey = Array.from(atob(pubkey), c => c.charCodeAt(0).toString(16).padStart(2,'0')).join('');
+            const config = 'public_key=' + hexKey + '\npersistent_keepalive_interval=' + interval + '\n';
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    body: JSON.stringify({ config })
+                });
+                if (res.ok) updateStatus();
+                else alert('设置失败');
+            } catch(e) { alert('请求失败: ' + e.message); }
         }
 
         initSystemSettings();
@@ -1036,6 +1065,7 @@ func (ui *WebUI) handleSystemConfig(w http.ResponseWriter, r *http.Request) {
 		ui.config.System.PublicPort = newSys.PublicPort
 		ui.config.System.WebHost = newSys.WebHost
 		ui.config.System.WebPort = newSys.WebPort
+		ui.config.System.DefaultKeepalive = newSys.DefaultKeepalive
 		if err := SaveConfig(ui.config); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -1301,6 +1331,12 @@ func (ui *WebUI) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	// 4. 执行 IpcSet 注入内核
 	uapi := fmt.Sprintf("public_key=%s\nallowed_ip=%s\n", b64ToHex(clientPub), assignedIP)
+	// 注入默认的 PersistentKeepalive（防止 NAT 断连）
+	keepalive := ui.config.System.DefaultKeepalive
+	if keepalive <= 0 {
+		keepalive = 25 // 安全默认值
+	}
+	uapi += fmt.Sprintf("persistent_keepalive_interval=%d\n", keepalive)
 	if err := ui.device.IpcSet(uapi); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to inject into network: " + err.Error()})

@@ -22,6 +22,7 @@ type IndexTable struct {
 	table map[uint32]IndexTableEntry
 }
 
+// 发起握手包时生成随机数
 func randUint32() (uint32, error) {
 	var integer [4]byte
 	_, err := rand.Read(integer[:])
@@ -55,6 +56,7 @@ func (table *IndexTable) SwapIndexForKeypair(index uint32, keypair *Keypair) {
 	}
 }
 
+// 握手包调用
 func (table *IndexTable) NewIndexForHandshake(peer *Peer, handshake *Handshake) (uint32, error) {
 	for {
 		// generate random index
