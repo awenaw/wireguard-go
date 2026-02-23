@@ -228,6 +228,23 @@ func (c *Config) ConfigureInterface(interfaceName string) error {
 		}
 		return nil
 	}
+
+	if runtime.GOOS == "windows" {
+		// Windows 逻辑：使用 netsh 配置静态 IP
+		mask := "255.255.255.0"
+		if strings.Contains(ip, "/") {
+			if strings.HasSuffix(ip, "/32") {
+				mask = "255.255.255.255"
+			}
+		}
+		// 执行 netsh 设置地址
+		// 命令: netsh interface ipv4 set address name="wg0" static 10.0.0.x 255.255.255.x
+		cmd := exec.Command("netsh", "interface", "ipv4", "set", "address", "name="+interfaceName, "static", directIP, mask)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("netsh set address failed: %w", err)
+		}
+		return nil
+	}
 	return nil
 }
 
