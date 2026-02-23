@@ -131,7 +131,7 @@ func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
 	peer.timersInit()
 
 	// 根据公钥设置备注名（用于调试）
-	pkBase64 := base64.StdEncoding.EncodeToString(pk[:])
+	pkBase64 := base64.StdEncoding.EncodeToString(pk[:]) // 静态公钥base64格式
 	remarkMap := map[string]string{
 		"d/bLS0aD77K6N5tv9PqywHn3w8djtuouK6i86dT2mXs=": "Debian",
 		"WKO1H3uFd1YYlMHGn1GltA6npl9RLsF9E0x3OIugcnU=": "iPhone",
@@ -145,6 +145,8 @@ func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
 
 	// 将新对等体添加到设备的映射表中
 	device.peers.keyMap[pk] = peer
+
+	device.log.Verbosef("%v - 哈基米启动", pkBase64)
 
 	return peer, nil
 }

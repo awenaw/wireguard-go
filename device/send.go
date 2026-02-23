@@ -52,6 +52,7 @@ type QueueOutboundElement struct {
 	peer    *Peer                 // related peer
 }
 
+// 加密顺序保障-每个peer的包必须按顺序加密（加密可乱序，发送必有序）
 type QueueOutboundElementsContainer struct {
 	sync.Mutex
 	elems []*QueueOutboundElement
@@ -78,7 +79,7 @@ func (elem *QueueOutboundElement) clearPointers() {
 
 /* Queues a keepalive if no packets are queued for peer
  */
-func (peer *Peer) SendKeepalive() {
+func (peer *Peer) SendKeepalive() { // 是否由定时器调用？
 	if len(peer.queue.staged) == 0 && peer.isRunning.Load() {
 		elem := peer.device.NewOutboundElement()
 		elemsContainer := peer.device.GetOutboundElementsContainer()
@@ -366,6 +367,7 @@ func (peer *Peer) StagePackets(elems *QueueOutboundElementsContainer) {
 	}
 }
 
+// 发送暂存的包
 func (peer *Peer) SendStagedPackets() {
 top:
 	// [阶段 1: 准备与检查 (Pre-flight Checks)]
@@ -381,7 +383,7 @@ top:
 	//    这是一个 Backpressure (背压) 机制，防止无密钥的空转加密。
 	keypair := peer.keypairs.Current()
 	if keypair == nil || keypair.sendNonce.Load() >= RejectAfterMessages || time.Since(keypair.created) >= RejectAfterTime {
-		peer.SendHandshakeInitiation(false)
+		peer.SendHandshakeInitiation(false) // 会重新生成这个 peer 的 keypair
 		return
 	}
 
