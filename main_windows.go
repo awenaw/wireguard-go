@@ -86,6 +86,10 @@ func main() {
 			logger.Errorf("Failed to apply config to device: %v", err)
 		} else {
 			logger.Verbosef("Persistent configuration applied successfully")
+			// 激活网卡设备 (开启数据平面)
+			if err := dev.Up(); err != nil {
+				logger.Errorf("Failed to bring up device: %v", err)
+			}
 			// 自动化配置网卡 IP 和 状态 (在 Windows 下需要管理员权限以运行 netsh)
 			if err := config.ConfigureInterface(interfaceName); err != nil {
 				logger.Errorf("Auto-config interface failed: %v (Try running as Administrator)", err)

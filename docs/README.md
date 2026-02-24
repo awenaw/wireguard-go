@@ -2,10 +2,35 @@
 
 | 平台 (Platform) | 运行时依赖 (Runtime Deps) | 内核/系统要求 (System Requirements) |
 | :--- | :--- | :--- |
-| **Linux** (Debian/Ubuntu) | `wireguard-tools`, `iproute2` | 必须支持 TUN/TAP (`/dev/net/tun`)；**无需 5.6+ 内核** |
-| **macOS** | `wireguard-tools` (brew) | 原生支持 `utun` 接口 |
-| **FreeBSD / OpenBSD** | `wireguard-tools` | 支持 `tun` 接口 |
+| **Linux** (Debian/Ubuntu) | `wireguard-tools`, `iproute2` | 必须支持 TUN/TAP (`/dev/net/tun`)；**无需 5.6+内核** |
+| **macOS** | `wireguard-tools` (brew) | 原生支持 `utun`接口 |
+| **Windows** | `wintun.dll` (放入 exe 同级) | **必须管理员权限**运行；支持 Wintun 驱动 |
 | **编译环境** | `Go 1.22+`, `make` | 需要完整的 Go 编译工具链 |
+
+---
+
+## Windows 运行指南 (Windows Guide)
+
+Windows 版本的开发旨在提供与 Unix/Mac 等同的二开体验。
+
+### 1. 核心依赖
+*   **Wintun 驱动**: 请从 [wintun.net](https://www.wintun.net/) 下载 `wintun.dll` 并放置在 `wireguard-go.exe` 的同一目录下。
+*   **管理员权限**: 修改网卡和路由表必须以 **管理员身份** 运行 PowerShell/CMD。
+
+### 2. 编译与执行 (单行命令)
+建议使用 PowerShell 执行：
+```powershell
+# 编译
+go build -o wireguard-go.exe
+
+# 设置环境变量并启动 (一次运行)
+$env:LOG_LEVEL="debug"; $env:WEBUI_PASSWORD="your_password"; ./wireguard-go.exe wg0
+```
+
+### 3. 本地路由关键配置
+在 `config.json` (或通过 WebUI) 配置时，请务必注意：
+*   **internal_subnet**: 在 Windows 下必须使用 **`/24`** 掩码（例如 `10.0.0.7/24`），确保系统路由表能正确覆盖整个网段。若设为 `/32`，则无法通往该网段的其他节点。
+*   **WebUI**: 访问 `http://localhost:8080` 进行可视化管理。由于 Windows 命名管道 (UAPI) 权限限制，WebUI 是 Windows 下最稳定的配置方式。
 
 ---
 
