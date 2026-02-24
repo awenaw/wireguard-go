@@ -1,6 +1,7 @@
 # 编译产物
 wireguard-go
 wireguard-go-debug
+wireguard-go.exe
 
 # WireGuard 配置（包含密钥）
 wg_config/*.key

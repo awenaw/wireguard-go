@@ -22,6 +22,8 @@ Windows 版本的开发旨在提供与 Unix/Mac 等同的二开体验。
 ```powershell
 # 编译
 go build -o wireguard-go.exe
+## mac环境编译打包成exe
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o wireguard-go.exe
 
 # 设置环境变量并启动 (一次运行)
 $env:LOG_LEVEL="debug"; $env:WEBUI_PASSWORD="your_password"; ./wireguard-go.exe wg0
