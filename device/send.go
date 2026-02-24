@@ -271,6 +271,10 @@ func (device *Device) RoutineReadFromTUN() { // aw-开荒: [读取 TUN]-发包
 				}
 				dst := elem.packet[IPv4offsetDst : IPv4offsetDst+net.IPv4len]
 				peer = device.allowedips.Lookup(dst)
+				if peer == nil {
+					device.log.Verbosef("[路由丢弃] 目标 %d.%d.%d.%d 未在任何 Peer 的 AllowedIPs 中找到", dst[0], dst[1], dst[2], dst[3])
+					continue
+				}
 
 			case 6:
 				if len(elem.packet) < ipv6.HeaderLen {
@@ -280,7 +284,7 @@ func (device *Device) RoutineReadFromTUN() { // aw-开荒: [读取 TUN]-发包
 				peer = device.allowedips.Lookup(dst)
 
 			default:
-				device.log.Verbosef("Received packet with unknown IP version")
+				device.log.Verbosef("Received packet with unknown IP version (first byte: %x)", elem.packet[0])
 			}
 
 			if peer == nil {
