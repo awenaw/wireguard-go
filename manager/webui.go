@@ -547,10 +547,20 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
         <section id="sec-enroll" style="display:none">
             <div style="max-width: 500px; margin: 30px auto; background: rgba(255,255,255,0.05); padding: 40px; border-radius: 24px; border: 1px solid rgba(255,255,255,0.1); text-align: center;">
                 <h2 style="font-size: 24px; margin-bottom: 20px;">🚀 客户端入驻</h2>
-                <div style="text-align: left; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px; margin-bottom: 25px; border: 1px solid rgba(255,255,255,0.05);">
+                <div style="text-align: left; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.05);">
                     <p style="color:#38bdf8; font-size:13px; font-weight:600; margin-bottom:8px;">💡 操作指南</p>
-                    <p style="color:#94a3b8; font-size:12px; line-height:1.6;">输入邀请码和服务器公网地址，即可为当前物理设备生成 WireGuard 配置文件。</p>
+                    <p style="color:#94a3b8; font-size:12px; line-height:1.6;">直接粘贴入网链接即可自动解析，或手动输入邀请码和服务器地址。</p>
                 </div>
+
+                <div style="text-align:left; margin-bottom:20px; padding:15px; background:rgba(56,189,248,0.05); border-radius:12px; border:1px solid rgba(56,189,248,0.1);">
+                    <label style="color:#38bdf8; font-size:13px; font-weight:600;">快捷解析链接</label>
+                    <div style="display:flex; gap:10px; margin-top:8px;">
+                        <input type="text" id="enroll-link-input" placeholder="粘贴 http://.../join/... 链接" style="flex:1; padding:12px; border-radius:10px; border:1px solid #334155; background: #0f172a; color: white;">
+                        <button class="tab-btn" style="margin:0; background:#38bdf8; color:#0f172a; border:none; padding:0 15px;" onclick="parseEnrollLink()">解析</button>
+                    </div>
+                </div>
+
+                <div style="height:1px; background:rgba(255,255,255,0.05); margin-bottom:20px;"></div>
 
                 <div style="text-align:left; margin-bottom:15px;">
                     <label style="color:#94a3b8; font-size:13px; font-weight:600;">邀请码</label>
@@ -639,7 +649,9 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                             </div>
                             <div>
                                 <div class="label-small">对等体公钥</div>
-                                <div class="value-small">${peer.public_key.substring(0, 16)}...</div>
+                                <div class="value-small" title="${peer.public_key}">${peer.public_key.substring(0, 12)}...</div>
+                                <div class="label-small" style="margin-top:8px;">实时 Endpoint</div>
+                                <div class="value-small" style="color:#10b981;">${peer.endpoint || '未连接'}</div>
                             </div>
                             <div class="traffic-group">
                                 <div class="traffic-box">
@@ -692,8 +704,9 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                             </div>
                             <div>
                                 <div class="label-small">一键入网链接</div>
-                                <div style="display:flex; align-items:center; gap:10px;">
-                                    <div class="value-small" style="color:#38bdf8; cursor:pointer; font-size:12px; flex:1;" onclick="copyLink('${webBase}/join/${inv.token}')">${webBase}/join/${inv.token}</div>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <div class="value-small" style="color:#38bdf8; cursor:pointer; font-size:12px; flex:1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: rgba(56,189,248,0.05); padding: 4px 8px; border-radius: 6px;" onclick="copyLink('${webBase}/join/${inv.token}')">${webBase}/join/${inv.token}</div>
+                                    <button class="tab-btn" style="padding:4px 8px; font-size:11px; margin:0; background:rgba(56,189,248,0.1); color:#38bdf8; border-color:rgba(56,189,248,0.2);" onclick="copyLink('${webBase}/join/${inv.token}')">复制</button>
                                     <button class="tab-btn" style="padding:4px 8px; font-size:11px; margin:0; background:rgba(56,189,248,0.1); color:#38bdf8; border-color:rgba(56,189,248,0.2);" onclick="showInviteQR('${webBase}/join/${inv.token}', '${inv.remark}')">二维码</button>
                                 </div>
                             </div>
@@ -708,6 +721,34 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                     ` + "`" + `).join('');
                     document.getElementById('invite-list').innerHTML = listHtml || '<div style="text-align:center; color:#475569; padding:40px;">暂无有效邀请码</div>';
                 });
+        }
+
+        function parseEnrollLink() {
+            const link = document.getElementById('enroll-link-input').value.trim();
+            if (!link) return;
+            try {
+                const url = new URL(link);
+                // 1. 提取服务端地址 (Scheme + Host)
+                const serverAddr = url.origin;
+                document.getElementById('enroll-server').value = serverAddr;
+
+                // 2. 提取 Token (Path 的最后一部分)
+                const parts = url.pathname.split('/');
+                const token = parts[parts.length - 1];
+                if (token) {
+                    document.getElementById('enroll-token').value = token;
+                }
+
+                // 3. 处理可选的 Endpoint 参数
+                const endpoint = url.searchParams.get('endpoint');
+                if (endpoint) {
+                    document.getElementById('enroll-endpoint').value = endpoint;
+                }
+
+                document.getElementById('enroll-link-input').value = '';
+            } catch (e) {
+                alert('链接格式不正确，请确保是完整的 http/https 链接');
+            }
         }
 
         async function goToEnroll() {
