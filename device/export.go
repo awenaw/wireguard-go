@@ -82,7 +82,7 @@ func (p *Peer) GetEndpoint() string {
 	p.endpoint.Lock()
 	defer p.endpoint.Unlock()
 	if p.endpoint.val == nil {
-		return "unknown"
+		return ""
 	}
 	return p.endpoint.val.DstToString()
 }
