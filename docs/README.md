@@ -8,7 +8,12 @@
 | **编译环境** | `Go 1.22+`, `make` | 需要完整的 Go 编译工具链 |
 
 ---
+## 常见指令
+``` bash
+# macos 编译并运行
+make build && sudo LOG_LEVEL=debug WEBUI_PASSWORD=yourpassword ./wireguard-go -f utun
 
+```
 ## Windows 运行指南 (Windows Guide)
 
 Windows 版本的开发旨在提供与 Unix/Mac 等同的二开体验。
