@@ -855,8 +855,34 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
         }
 
         function copyLink(link) {
-            navigator.clipboard.writeText(link);
-            alert('链接已复制到剪贴板');
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(link).then(() => {
+                    alert('链接已复制到剪贴板');
+                }).catch(err => {
+                    console.error('Clipboard API failed, using fallback:', err);
+                    fallbackCopy(link);
+                });
+            } else {
+                fallbackCopy(link);
+            }
+        }
+
+        function fallbackCopy(text) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-9999px";
+            textArea.style.top = "0";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                alert('链接已复制到剪贴板');
+            } catch (err) {
+                alert('复制失败，请手动选择复制');
+            }
+            document.body.removeChild(textArea);
         }
 
         async function setKeepalive(pubkey, val) {
@@ -1603,8 +1629,32 @@ func (ui *WebUI) handleJoin(w http.ResponseWriter, r *http.Request) {
         }
 
         function copyConf() {
-            navigator.clipboard.writeText(document.getElementById('conf-text').innerText);
-            alert('已复制到剪贴板');
+            const text = document.getElementById('conf-text').innerText;
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => {
+                    alert('已复制到剪贴板');
+                }).catch(() => fallbackCopy(text));
+            } else {
+                fallbackCopy(text);
+            }
+        }
+
+        function fallbackCopy(text) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-9999px";
+            textArea.style.top = "0";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                alert('已复制到剪贴板');
+            } catch (err) {
+                alert('复制失败，请手动选择复制');
+            }
+            document.body.removeChild(textArea);
         }
     </script>
 </body>
