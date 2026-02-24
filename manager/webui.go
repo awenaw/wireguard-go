@@ -35,7 +35,9 @@ type PeerInfo struct {
 	LastHandshake     string   `json:"last_handshake"`     // 最后握手时间
 	TxBytes           uint64   `json:"tx_bytes"`           // 发送字节数
 	RxBytes           uint64   `json:"rx_bytes"`           // 接收字节数
+	TotalBytes        uint64   `json:"total_bytes"`        // 累计总流量
 	IsRunning         bool     `json:"is_running"`         // 是否运行中
+	IsOnline          bool     `json:"is_online"`          // 是否在线 (基于握手时间)
 	KeepaliveInterval uint32   `json:"keepalive_interval"` // 保活间隔
 }
 
@@ -196,8 +198,11 @@ func (ui *WebUI) getDeviceInfo() DeviceInfo {
 		peers = append(peers, peerInfo)
 	})
 
-	// 按备注名排序
+	// 动态排序：优先按在线状态(降序)，再按备注名(升序)
 	sort.Slice(peers, func(i, j int) bool {
+		if peers[i].IsOnline != peers[j].IsOnline {
+			return peers[i].IsOnline // true (在线) 排在前面
+		}
 		return peers[i].Remark < peers[j].Remark
 	})
 
@@ -236,6 +241,15 @@ func (ui *WebUI) getPeerInfo(peer *device.Peer) PeerInfo {
 
 	tx, rx := peer.GetTrafficStats()
 
+	// 计算是否在线：最后握手在 135 秒内 (WireGuard 默认握手超时约 2 分钟)
+	isOnline := false
+	if lastHandshakeNano > 0 {
+		since := time.Since(time.Unix(0, lastHandshakeNano))
+		if since < time.Second*135 {
+			isOnline = true
+		}
+	}
+
 	return PeerInfo{
 		Remark:            remark,
 		PublicKey:         publicKey,
@@ -244,7 +258,9 @@ func (ui *WebUI) getPeerInfo(peer *device.Peer) PeerInfo {
 		LastHandshake:     lastHandshake,
 		TxBytes:           tx,
 		RxBytes:           rx,
+		TotalBytes:        tx + rx,
 		IsRunning:         peer.GetIsRunning(),
+		IsOnline:          isOnline,
 		KeepaliveInterval: peer.GetKeepaliveInterval(),
 	}
 }
@@ -368,7 +384,7 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
             flex-shrink: 0;
         }
         .status-dot.online { background: #22c55e; box-shadow: 0 0 10px #22c55e; }
-        .status-dot.offline { background: #94a3b8; }
+        .status-dot.offline { background: transparent; border: 1px solid #475569; }
         .peer-name {
             font-weight: 600;
             font-size: 16px;
@@ -641,7 +657,7 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                     const listHtml = data.peers.map(peer => ` + "`" + `
                         <div class="peer-row" style="grid-template-columns: 1.5fr 2fr 1.5fr 1fr 1fr 1.5fr;">
                             <div class="peer-main">
-                                <div class="status-dot ${peer.is_running ? 'online' : 'offline'}"></div>
+                                <div class="status-dot ${peer.is_online ? 'online' : 'offline'}"></div>
                                 <div>
                                     <div class="peer-name">${peer.remark || '未命名设备'}</div>
                                     <div class="peer-ips">${peer.allowed_ips ? peer.allowed_ips.join(', ') : '-'}</div>
@@ -659,8 +675,12 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
                                     <div class="traffic-val">↑ ${formatBytes(peer.tx_bytes)}</div>
                                 </div>
                                 <div class="traffic-box">
-                                    <div class="label-small">接收</div>
-                                    <div class="traffic-val">↓ ${formatBytes(peer.rx_bytes)}</div>
+                                    <div class="label-small">下载</div>
+                                    <div class="traffic-val" style="color:#22c55e;">↓ ${formatBytes(peer.rx_bytes)}</div>
+                                </div>
+                                <div class="traffic-box">
+                                    <div class="label-small">累计总计</div>
+                                    <div class="traffic-val" style="color:#f8fafc; font-weight:700; border-top:1px solid rgba(255,255,255,0.1); margin-top:4px; padding-top:4px;">∑ ${formatBytes(peer.total_bytes)}</div>
                                 </div>
                             </div>
                             <div>
