@@ -21,11 +21,12 @@ import (
 	"golang.zx2c4.com/wireguard/conn"
 )
 
+// QueueHandshakeElement 是对握手包的封装，再入到device.queue.handshake.c 队列
 type QueueHandshakeElement struct {
-	msgType  uint32
-	packet   []byte
-	endpoint conn.Endpoint
-	buffer   *[MaxMessageSize]byte
+	msgType  uint32                // 消息类型 (1, 2 或 3)
+	packet   []byte                // 原始二进制数据切片
+	endpoint conn.Endpoint         // 对方的 UDP 地址 (以此确定回包回给谁)
+	buffer   *[MaxMessageSize]byte // 原始缓冲区指针 (用于内存回收)
 }
 
 type QueueInboundElement struct {
@@ -182,6 +183,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 
 			// check if transport
 			// === 核心路径: 处理加密数据包 (Type 4) ===
+			// 热点数据，所以放在最前
 			case MessageTransportType:
 
 				// check size
