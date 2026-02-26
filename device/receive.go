@@ -24,7 +24,7 @@ import (
 // QueueHandshakeElement 是对握手包的封装，再入到device.queue.handshake.c 队列
 type QueueHandshakeElement struct {
 	msgType  uint32                // 消息类型 (1, 2 或 3)
-	packet   []byte                // 原始二进制数据切片
+	packet   []byte                // 原始二进制数据切片（它本质上是 buffer 的一个 “窗口”，只包含了包的实际有效内容，具体赋值为：packet := buffer[:size]）
 	endpoint conn.Endpoint         // 对方的 UDP 地址 (以此确定回包回给谁)
 	buffer   *[MaxMessageSize]byte // 原始缓冲区指针 (用于内存回收)
 }
