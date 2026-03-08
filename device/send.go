@@ -96,6 +96,7 @@ func (peer *Peer) SendKeepalive() { // 是否由定时器调用？
 	peer.SendStagedPackets()
 }
 
+// 当手数据要发送，发现没密钥，则发送握手初始化方法
 func (peer *Peer) SendHandshakeInitiation(isRetry bool) error {
 	if !isRetry {
 		peer.timers.handshakeAttempts.Store(0)
