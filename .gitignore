@@ -25,3 +25,8 @@ wg_config/RDPWrap.zip
 # 其他
 device_comments/
 wg_data/
+
+# Go build cache
+.gocache/
+/wintun.dll
+/wireguard-go.exe
