@@ -644,8 +644,11 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 				if int(length) > len(elem.packet) || int(length) < ipv4.HeaderLen {
 					continue
 				}
+				// elem.packet 已经是被彻彻底底剥去了 WireGuard 外衣、解密完毕的那层“最原始的明文 IP 包”了
 				elem.packet = elem.packet[:length]
 				src := elem.packet[IPv4offsetSrc : IPv4offsetSrc+net.IPv4len]
+				// 核心校验-假设服务器 0.1，客户端A 0.2，客户端B 0.3，A发送给B
+				// 如果客户端A伪造 src 为 0.9，因为服务器查 AllowedIPs 发现 0.9 不属于 A，在这里就会被直接丢弃。
 				if device.allowedips.Lookup(src) != peer {
 					device.log.Verbosef("IPv4 packet with disallowed source address from %v", peer)
 					continue
