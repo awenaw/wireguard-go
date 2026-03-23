@@ -5,6 +5,7 @@
 
 package device
 
+// 文件作用：这个包是属于哪个对端的、该用什么状态或密钥去解密处理。！！
 import (
 	"crypto/rand"
 	"encoding/binary"
