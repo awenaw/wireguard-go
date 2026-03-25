@@ -127,7 +127,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 		// 那么 recv 返回后：
 		// count = 3
 		// sizes = [200, 50, 1200, 0, 0, ...]
-		count, err = recv(bufs, sizes, endpoints)
+		count, err = recv(bufs, sizes, endpoints) // recv 得到的就是 UDP 的载荷（剥离了以太网帧、IP 头、UDP 头），此时就是 wireguard 的内容（最小 32 字节，就是心跳包）
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return
@@ -150,7 +150,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 		// [Step 2: Sort] 遍历这一批收到的每一个包
 		for i, size := range sizes[:count] {
 			if size < MinMessageSize {
-				// [过滤] 如果包太小（小于32字节），连协议头都装不下，直接丢弃
+				// [过滤] 如果包太小（小于32字节,小于心跳包），连协议头都装不下，直接丢弃
 				// MinMessageSize = 32 bytes (Type(4) + Receiver(4) + Nonce(8) + Tag(16))
 				// 任何合法的 WireGuard 包至少要有这么长。
 				// 静默丢弃也是为了防止主动回应导致的扫描探测 (Port Scanning)。
