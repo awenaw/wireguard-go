@@ -94,7 +94,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 
 	// receive datagrams until conn is closed
 	// 持续循环收包，直到连接关闭
-	var (
+	var ( // make 语法：make([]T, len, cap)（len=长度，cap=容量）
 		bufsArrs    = make([]*[MaxMessageSize]byte, maxBatchSize) // 缓冲池指针数组 (存放这一批包的内存地址)
 		bufs        = make([][]byte, maxBatchSize)                // 字节切片视图 (recv函数直接写入这里)
 		err         error
