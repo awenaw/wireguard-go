@@ -105,8 +105,9 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 		elemsByPeer = make(map[*Peer]*QueueInboundElementsContainer, maxBatchSize) // 临时分拣车: 按 Peer 归类的待处理包裹
 	)
 
+	// recv 接受数据包，需要提前给容器（bufs）准备好内存
 	for i := range bufsArrs {
-		bufsArrs[i] = device.GetMessageBuffer() // [内存分配] 从 Pool 借 128 个空盘子
+		bufsArrs[i] = device.GetMessageBuffer() // [内存分配] 从 Pool 借 128 个空盘子（前面的bufsArrs的 make 只是开辟了指针空间）
 		bufs[i] = bufsArrs[i][:]
 	}
 
@@ -127,6 +128,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 		// 那么 recv 返回后：
 		// count = 3
 		// sizes = [200, 50, 1200, 0, 0, ...]
+		// bufs 需提前准备内存
 		count, err = recv(bufs, sizes, endpoints) // recv 得到的就是 UDP 的载荷（剥离了以太网帧、IP 头、UDP 头），此时就是 wireguard 的内容（最小 32 字节，就是心跳包）
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
@@ -184,7 +186,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 			// check if transport
 			// === 核心路径: 处理加密数据包 (Type 4) ===
 			// 热点数据，所以放在最前
-			case MessageTransportType:
+			case MessageTransportType: // Type=4（小端序），该包可能为心跳包，也可能为数据包
 
 				// check size
 
