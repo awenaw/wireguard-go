@@ -129,6 +129,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 		// count = 3
 		// sizes = [200, 50, 1200, 0, 0, ...]
 		// bufs 需提前准备内存
+		// WireGuard 唯一需要知道的 IP 层信息是对方的 IP:Port，而这个通过 endpoint 参数已经拿到了。
 		count, err = recv(bufs, sizes, endpoints) // recv 得到的就是 UDP 的载荷（剥离了以太网帧、IP 头、UDP 头），此时就是 wireguard 的内容（最小 32 字节，就是心跳包）
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
