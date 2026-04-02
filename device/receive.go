@@ -275,7 +275,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 			}
 
 			// handoff to handshake goroutine
-			// [VIP通道] 握手包不进解密队列，直接扔给握手协程
+			// [VIP通道] 握手包不进解密队列（因为还没有生成 Keypair），直接扔给握手协程
 			// 这里的 msgType 包含了:
 			// - Type 1 (Initiation): 握手发起
 			// - Type 2 (Response): 握手响应
@@ -561,7 +561,7 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 			return
 		}
 		// [保序点 1] 拿到这一批包裹的清单，清单本身就是有序的
-		elemsContainer.Lock()
+		elemsContainer.Lock() // 拿锁（死等解密协程 Unlock 完工。这里拿到锁后，本协程就不再 Unlock 了，最后随对象池回收被覆盖销毁）
 		validTailPacket := -1
 		dataPacketReceived := false
 		rxBytesLen := uint64(0)
