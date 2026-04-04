@@ -277,8 +277,8 @@ func main() {
 
 	logger.Verbosef("Device started")
 
-	errs := make(chan error)
-	term := make(chan os.Signal, 1)
+	errs := make(chan error)        // 创建一个无缓冲的错误通道（用于接收异步错误）
+	term := make(chan os.Signal, 1) // 创建一个缓冲容量为 1 的信号通道（终止信号到达）
 
 	// [3. 第三板斧] 启动 UAPI 监听 (接通控制台)
 	// 监听一个 Unix Socket 文件，等待外部工具(如 wg) 发送配置指令。
