@@ -32,6 +32,7 @@ type Keypair struct {
 	remoteIndex  uint32        // [远端索引] 对方分配给这个 Session 的 ID。我发给对方的包头里会填这个值，供对方查表。
 }
 
+// 三把钥匙，从容应对
 type Keypairs struct {
 	sync.RWMutex
 	current  *Keypair
