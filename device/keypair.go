@@ -14,6 +14,8 @@ import (
 	"golang.zx2c4.com/wireguard/replay"
 )
 
+// 作用：加密、解密、防重放、身份标记、诞生时间、本地索引、远端索引
+
 /* Due to limitations in Go and /x/crypto there is currently
  * no way to ensure that key material is securely ereased in memory.
  *
