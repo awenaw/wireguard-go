@@ -385,7 +385,7 @@ func NewDevice(tunDevice tun.Device, bind conn.Bind, logger *Logger) *Device {
 	// 初始化内存池，用于高效的内存分配
 	device.PopulatePools()
 
-	// 创建处理队列
+	// 创建处理队列数据结构
 	device.queue.handshake = newHandshakeQueue() // 握手处理队列
 	device.queue.encryption = newOutboundQueue() // 出站加密队列
 	device.queue.decryption = newInboundQueue()  // 入站解密队列
