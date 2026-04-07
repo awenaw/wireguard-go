@@ -1,0 +1,6 @@
+conn文件夹的源码作用：
+1、 物理层与协议栈的桥梁：
+    1）创建底层的 UDP Socket (监听端口)
+    2）定义了 Bind 接口：WireGuard 核心逻辑（device 包）并不直接操作网络套接字，而是通过 Bind 接口来发包。
+2、对等体端点管理：conn 定义了 Endpoint：包含了对方真实的公网 IP 和端口
+3、特定 OS 的性能加速器（如 linux的GSO、GRO）
