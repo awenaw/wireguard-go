@@ -11,6 +11,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
+// 监听 os 网卡事件：网卡 up/down、MTU 变化
 const DefaultMTU = 1420
 
 func (device *Device) RoutineTUNEventReader() {
