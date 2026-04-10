@@ -57,7 +57,7 @@ func (table *IndexTable) SwapIndexForKeypair(index uint32, keypair *Keypair) {
 	}
 }
 
-// 握手包调用
+// 握手包调用（为握手创建一个随机索引，发包时把这个索引放在包头里，收包时根据这个索引查表找到对应的 Keypair 或 Handshake 进行处理）
 func (table *IndexTable) NewIndexForHandshake(peer *Peer, handshake *Handshake) (uint32, error) {
 	for {
 		// generate random index
@@ -73,7 +73,7 @@ func (table *IndexTable) NewIndexForHandshake(peer *Peer, handshake *Handshake) 
 		_, ok := table.table[index]
 		table.RUnlock()
 		if ok {
-			continue
+			continue //如果这个索引已经被占用，继续生成新的随机数，直到找到一个空闲的索引为止。
 		}
 
 		// check again while locked
@@ -82,8 +82,9 @@ func (table *IndexTable) NewIndexForHandshake(peer *Peer, handshake *Handshake) 
 		_, found := table.table[index]
 		if found {
 			table.Unlock()
-			continue
+			continue // 二次检查，防止在生成随机数和加锁之间有其他线程占用了这个索引。
 		}
+		// 正式分配这个索引，关联到这个握手和对端。发包时会把这个索引放在包头里，收包时根据这个索引查表找到对应的 Keypair 或 Handshake 进行处理。
 		table.table[index] = IndexTableEntry{
 			peer:      peer,
 			handshake: handshake,
