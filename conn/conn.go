@@ -15,6 +15,8 @@ import (
 	"strings"
 )
 
+// conn 包是 WireGuard 的 UDP 传输抽象层。
+// Bind 负责监听端口、收发 UDP 包；Endpoint 负责表示并缓存 peer 的源/目的地址信息。
 const (
 	IdealBatchSize = 128 // maximum number of packets handled per read and write
 )
