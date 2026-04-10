@@ -406,7 +406,7 @@ func NewDevice(tunDevice tun.Device, bind conn.Bind, logger *Logger) *Device {
 	device.state.stopping.Add(1)      // 为TUN读取协程添加计数
 	device.queue.encryption.wg.Add(1) // 为TUN读取协程预留加密队列计数
 	go device.RoutineReadFromTUN()    // TUN接口数据读取协程
-	go device.RoutineTUNEventReader() // TUN接口事件监听协程
+	go device.RoutineTUNEventReader() // TUN接口事件监听协程（os事件（网卡up/down、MTU变化） -> channel -> wireguard消费）
 
 	return device
 }
