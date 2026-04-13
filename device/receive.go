@@ -237,7 +237,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 				// 等这一批系统调用收上来的包全部分拣完了，再一次性整车推给 Worker。
 				elemsForPeer, ok := elemsByPeer[peer]
 				if !ok {
-					elemsForPeer = device.GetInboundElementsContainer()
+					elemsForPeer = device.GetInboundElementsContainer() // 拿盘子来装
 					elemsForPeer.Lock()
 					elemsByPeer[peer] = elemsForPeer
 				}
