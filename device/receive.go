@@ -297,7 +297,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 		}
 
 		// [Step 3: Dispatch] 批量派发
-		for peer, elemsContainer := range elemsByPeer {
+		for peer, elemsContainer := range elemsByPeer { //遍历按 peer 分组的数据包
 			if peer.isRunning.Load() {
 				// [双重投递]
 				// 1. peer.queue.inbound: 投递到 Peer 专属队列，
