@@ -299,9 +299,11 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 		// [Step 3: Dispatch] 批量派发
 		for peer, elemsContainer := range elemsByPeer {
 			if peer.isRunning.Load() {
-				// [双重通知]
-				// 1. peer.queue.inbound: 通知 Peer 专属队列 (用于保序/流控)
-				// 2. device.queue.decryption: 扔进公用解密池 (Worker 开始并行解密)
+				// [双重投递]
+				// 1. peer.queue.inbound: 投递到 Peer 专属队列，
+				//    该 Peer 的后续处理是串行的，因此可维持顺序
+				// 2. device.queue.decryption: 投递到公共解密队列，
+				//    由多个 Worker 并行处理，因此不保证处理顺序
 				peer.queue.inbound.c <- elemsContainer
 				device.queue.decryption.c <- elemsContainer
 			} else {

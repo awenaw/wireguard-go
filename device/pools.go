@@ -74,7 +74,7 @@ func (device *Device) GetInboundElementsContainer() *QueueInboundElementsContain
 
 func (device *Device) PutInboundElementsContainer(c *QueueInboundElementsContainer) {
 	for i := range c.elems {
-		c.elems[i] = nil
+		c.elems[i] = nil // 置空？
 	}
 	c.elems = c.elems[:0]
 	device.pool.inboundElementsContainer.Put(c)

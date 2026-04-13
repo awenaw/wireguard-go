@@ -78,6 +78,8 @@ type Device struct {
 
 	// 内存池管理结构体，用于高效的内存分配和回收
 	pool struct {
+		// 为什么能统一用WaitPool？因为WaitPool可以管理任意类型的对象，只要实现了相应的接口。
+		// 通过WaitPool，可以统一管理入站元素、出站元素、消息缓冲区等不同类型的对象，简化内存管理逻辑。
 		inboundElementsContainer  *WaitPool // 入站元素容器池
 		outboundElementsContainer *WaitPool // 出站元素容器池
 		messageBuffers            *WaitPool // 消息缓冲区池

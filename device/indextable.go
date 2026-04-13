@@ -18,6 +18,7 @@ type IndexTableEntry struct {
 	keypair   *Keypair
 }
 
+// indexId 关联了一个对端和一个握手或密钥对。发包时把这个索引放在包头里，收包时根据这个索引查表找到对应的 Keypair 或 Handshake 进行处理。
 type IndexTable struct {
 	sync.RWMutex
 	table map[uint32]IndexTableEntry
