@@ -152,6 +152,7 @@ func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
 }
 
 // SendBuffers 向对等体发送数据包缓冲区
+// 调用时机：握手初始化、向对端发送握手响应、发送数据包等场景
 // 参数：
 //   - buffers: 要发送的数据包缓冲区数组
 //
