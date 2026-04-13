@@ -185,7 +185,7 @@ func (peer *Peer) SendBuffers(buffers [][]byte) error {
 	peer.endpoint.Unlock()
 
 	// 通过底层网络绑定发送数据包
-	err := peer.device.net.bind.Send(buffers, endpoint)
+	err := peer.device.net.bind.Send(buffers, endpoint) // 研究 wireguard-go 架构时，Bind.Send 就是合理的黑盒边界
 	if err == nil {
 		// 统计发送的总字节数
 		var totalLen uint64
