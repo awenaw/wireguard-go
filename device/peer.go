@@ -281,7 +281,7 @@ func (peer *Peer) Start() {
 	// 因为设备大小是批处理池的大小
 	batchSize := peer.device.BatchSize()
 
-	// 启动两个核心协程
+	// 启动两个核心协程（不按 CPU 数量来，每个 peer 有且只有 两个协程，分别处理发送和接收）
 	go peer.RoutineSequentialSender(batchSize)   // 顺序发送协程
 	go peer.RoutineSequentialReceiver(batchSize) // 顺序接收协程
 
