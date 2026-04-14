@@ -167,7 +167,7 @@ func (msg *MessageResponse) unmarshal(b []byte) error {
 }
 
 func (msg *MessageResponse) marshal(b []byte) error {
-	if len(b) != MessageResponseSize {
+	if len(b) != MessageResponseSize { // 不满足响应包的固定长度要求，返回错误
 		return errMessageLengthMismatch
 	}
 
@@ -442,6 +442,8 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 
 	return peer
 }
+
+// 构建响应包
 
 func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error) {
 	handshake := &peer.handshake
