@@ -267,6 +267,8 @@ func init() {
 	mixHash(&InitialHash, &InitialChainKey, []byte(WGIdentifier))
 }
 
+// Initiator 发起握手
+// 此时的握手状态是 （handshakeInitiationCreated），生成 MessageInitiation 消息，准备发送给 Responder。
 func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, error) {
 	device.staticIdentity.RLock()
 	defer device.staticIdentity.RUnlock()
