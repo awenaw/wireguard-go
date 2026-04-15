@@ -262,6 +262,10 @@ func (h *Handshake) mixKey(data []byte) {
 
 /* Do basic precomputations
  */
+// device 包初始化时，init() 只执行一次，用来计算 Noise 协议的初始 chainKey 和 hash 。
+// 每次都是一样的，前提是源码里的这两个常量没变：
+// NoiseConstruction
+// WGIdentifier
 func init() {
 	InitialChainKey = blake2s.Sum256([]byte(NoiseConstruction))
 	mixHash(&InitialHash, &InitialChainKey, []byte(WGIdentifier))
@@ -269,6 +273,7 @@ func init() {
 
 // Initiator 发起握手
 // 此时的握手状态是 （handshakeInitiationCreated），生成 MessageInitiation 消息，准备发送给 Responder。
+// 补充理解：这里不会直接发 UDP，而是先把第一条握手消息和本地握手现场准备好。
 func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, error) {
 	device.staticIdentity.RLock()
 	defer device.staticIdentity.RUnlock()
@@ -278,25 +283,32 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 	defer handshake.mutex.Unlock()
 
 	// create ephemeral key
+	// 这是一轮新握手的起点：先把 transcript（握手上下文） 重置到协议初始值，
+	// 再生成本轮专用的本地临时密钥。
 	var err error
-	handshake.hash = InitialHash
+	handshake.hash = InitialHash // 握手 transcript 的初始摘要种子
 	handshake.chainKey = InitialChainKey
 	handshake.localEphemeral, err = newPrivateKey()
 	if err != nil {
 		return nil, err
 	}
 
+	// 把对端静态公钥并入 transcript，表示“我要和这个 peer 建立这轮握手”。
 	handshake.mixHash(handshake.remoteStatic[:])
 
+	// 先把第一条握手消息的明文字段搭出来：类型 + 我方临时公钥。
 	msg := MessageInitiation{
 		Type:      MessageInitiationType,
 		Ephemeral: handshake.localEphemeral.publicKey(),
 	}
 
+	// 把本轮临时公钥并入 transcript；后续双方必须按同样顺序推进状态。
 	handshake.mixKey(msg.Ephemeral[:])
 	handshake.mixHash(msg.Ephemeral[:])
 
 	// encrypt static key
+	// 用本地临时私钥和对端静态公钥做 DH，派生出临时加密 key，
+	// 再把我方静态公钥密封进 msg.Static，供对端识别发起方身份。
 	ss, err := handshake.localEphemeral.sharedSecret(handshake.remoteStatic)
 	if err != nil {
 		return nil, err
@@ -309,10 +321,14 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 		ss[:],
 	)
 	aead, _ := chacha20poly1305.New(key[:])
+	// 用这一步派生出的 key 加密我方静态公钥，associated data 绑定当前 transcript。
 	aead.Seal(msg.Static[:0], ZeroNonce[:], device.staticIdentity.publicKey[:], handshake.hash[:])
+	// 密文也要继续并入 transcript；对端解出后会按同样顺序推进。
 	handshake.mixHash(msg.Static[:])
 
 	// encrypt timestamp
+	// 再用预计算好的 static-static 共享秘密派生出下一把 key，
+	// 把时间戳加密进消息里，用来抵抗旧 initiation 的重放。
 	if isZero(handshake.precomputedStaticStatic[:]) {
 		return nil, errInvalidPublicKey
 	}
@@ -324,9 +340,12 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 	)
 	timestamp := tai64n.Now()
 	aead, _ = chacha20poly1305.New(key[:])
+	// 时间戳不明文发送，而是继续作为受 transcript 保护的密文载荷。
 	aead.Seal(msg.Timestamp[:0], ZeroNonce[:], timestamp[:], handshake.hash[:])
 
 	// assign index
+	// 给这轮握手分配一个本地 sender index，方便对端后续回包时定位到这次握手。
+	// 先删除旧 index，避免本地仍然残留上一轮握手的映射。
 	device.indexTable.Delete(handshake.localIndex)
 	msg.Sender, err = device.indexTable.NewIndexForHandshake(peer, handshake)
 	if err != nil {
@@ -334,7 +353,10 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 	}
 	handshake.localIndex = msg.Sender
 
+	// 至此 initiation 已构造完成；本地保留好现场，等待 responder 的 response。
+	// 时间戳密文是这条消息最后一个被纳入 transcript 的部分。
 	handshake.mixHash(msg.Timestamp[:])
+	// 状态推进到“initiation 已创建”，后续就应该等待并消费 response。
 	handshake.state = handshakeInitiationCreated
 	return &msg, nil
 }
