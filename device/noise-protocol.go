@@ -288,12 +288,12 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 	var err error
 	handshake.hash = InitialHash // 握手 transcript 的初始摘要种子
 	handshake.chainKey = InitialChainKey
-	handshake.localEphemeral, err = newPrivateKey()
+	handshake.localEphemeral, err = newPrivateKey() // 生成了本轮 ephemeral private key
 	if err != nil {
 		return nil, err
 	}
 
-	// 把对端静态公钥并入 transcript，表示“我要和这个 peer 建立这轮握手”。
+	// 把对端静态公钥并入 transcript ，表示“我要和这个 peer 建立这轮握手”。
 	handshake.mixHash(handshake.remoteStatic[:])
 
 	// 先把第一条握手消息的明文字段搭出来：类型 + 我方临时公钥。
@@ -302,34 +302,42 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 		Ephemeral: handshake.localEphemeral.publicKey(),
 	}
 
-	// 把本轮临时公钥并入 transcript；后续双方必须按同样顺序推进状态。
+	// 把本轮临时公钥并入 transcript ；后续双方必须按同样顺序推进状态。
 	handshake.mixKey(msg.Ephemeral[:])
 	handshake.mixHash(msg.Ephemeral[:])
 
 	// encrypt static key
-	// 用本地临时私钥和对端静态公钥做 DH，派生出临时加密 key，
-	// 再把我方静态公钥密封进 msg.Static，供对端识别发起方身份。
-	ss, err := handshake.localEphemeral.sharedSecret(handshake.remoteStatic)
+	// 用本地临时私钥（localEphemeral）和对端静态公钥（remoteStatic）做 DH，派生出临时加密 key，
+	// 再把我方静态公钥 密封 进 msg.Static（ 下面的aead.Seal那行） ，供对端识别发起方身份。
+	ss, err := handshake.localEphemeral.sharedSecret(handshake.remoteStatic) // DH 计算出来的共享秘密材料（不是最终 session key，而是拿去喂给 KDF2，继续推进握手密钥状态）
 	if err != nil {
 		return nil, err
 	}
 	var key [chacha20poly1305.KeySize]byte
+	// 这里把“旧的 chainKey”当作当前链式状态，把“上面那次 sharedSecret(...) 算出来的 ss”当作新材料，
+	// 一起喂给 KDF2，导出两个结果：更新后的 chainKey，以及当前这一步专门拿来加密静态公钥的 key。
 	KDF2(
-		&handshake.chainKey,
-		&key,
-		handshake.chainKey[:],
-		ss[:],
+		&handshake.chainKey,   // 输出 1：更新后的 chainKey，供后续握手步骤继续往下推导
+		&key,                  // 输出 2：当前步骤的工作密钥，下面会立刻拿它创建 AEAD
+		handshake.chainKey[:], // 输入 1：调用前的 chainKey，也就是握手当前的链式密钥状态
+		ss[:],                 // 输入 2：上面那次 DH（localEphemeral x remoteStatic）产出的共享秘密 ss
 	)
-	aead, _ := chacha20poly1305.New(key[:])
-	// 用这一步派生出的 key 加密我方静态公钥，associated data 绑定当前 transcript。
-	aead.Seal(msg.Static[:0], ZeroNonce[:], device.staticIdentity.publicKey[:], handshake.hash[:])
+	aead, _ := chacha20poly1305.New(key[:]) // 用上面 KDF2 导出的 key 实例化 AEAD，准备加密静态公钥了
+	// 把我方静态公钥作为明文加密后写入 msg.Static，
+	// 对端后续会解出这里的内容，用它确认发起方是谁。
+	aead.Seal(
+		msg.Static[:0],                     // 输出目标：密文写到 msg.Static
+		ZeroNonce[:],                       // nonce：这里固定使用全 0 nonce
+		device.staticIdentity.publicKey[:], // 明文：我方静态公钥
+		handshake.hash[:],                  // associated data：绑定当前握手 transcript，防止脱离上下文篡改
+	)
 	// 密文也要继续并入 transcript；对端解出后会按同样顺序推进。
 	handshake.mixHash(msg.Static[:])
 
 	// encrypt timestamp
 	// 再用预计算好的 static-static 共享秘密派生出下一把 key，
 	// 把时间戳加密进消息里，用来抵抗旧 initiation 的重放。
-	if isZero(handshake.precomputedStaticStatic[:]) {
+	if isZero(handshake.precomputedStaticStatic[:]) { // 如果 precomputedStaticStatic 是全 0，说明之前没有成功计算过 static-static 共享秘密，可能是因为对端公钥无效导致 DH 失败了。为了安全起见，这里直接拒绝发出 initiation。
 		return nil, errInvalidPublicKey
 	}
 	KDF2(

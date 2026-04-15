@@ -45,6 +45,7 @@ func KDF1(t0 *[blake2s.Size]byte, key, input []byte) {
 	HMAC1(t0, t0[:], []byte{0x1})
 }
 
+// KDF2 用当前链状态和新的输入材料，导出两个结果：下一阶段状态和本步工作密钥。
 func KDF2(t0, t1 *[blake2s.Size]byte, key, input []byte) {
 	var prk [blake2s.Size]byte
 	HMAC1(&prk, key, input)
@@ -77,11 +78,13 @@ func setZero(arr []byte) {
 	}
 }
 
+// 把随机出来的 32 字节修成 Curve25519 可用的私钥格式
 func (sk *NoisePrivateKey) clamp() {
 	sk[0] &= 248
 	sk[31] = (sk[31] & 127) | 64
 }
 
+// newPrivateKey 随机生成一把私钥，并按 Curve25519 规则做 clamp。
 func newPrivateKey() (sk NoisePrivateKey, err error) {
 	_, err = rand.Read(sk[:])
 	sk.clamp()
@@ -97,6 +100,7 @@ func (sk *NoisePrivateKey) publicKey() (pk NoisePublicKey) {
 
 var errInvalidPublicKey = errors.New("invalid public key")
 
+// 做一次 DH，产出新的共享秘密材料，供后续 KDF 使用
 func (sk *NoisePrivateKey) sharedSecret(pk NoisePublicKey) (ss [NoisePublicKeySize]byte, err error) {
 	apk := (*[NoisePublicKeySize]byte)(&pk)
 	ask := (*[NoisePrivateKeySize]byte)(sk)
