@@ -322,10 +322,11 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 		handshake.chainKey[:], // 输入 1：调用前的 chainKey，也就是握手当前的链式密钥状态
 		ss[:],                 // 输入 2：上面那次 DH（localEphemeral x remoteStatic）产出的共享秘密 ss
 	)
+	// aead = 用当前步骤派生出来的 key，把某段数据安全封装成密文，并绑定到当前握手上下文。
 	aead, _ := chacha20poly1305.New(key[:]) // 用上面 KDF2 导出的 key 实例化 AEAD，准备加密静态公钥了
 	// 把我方静态公钥作为明文加密后写入 msg.Static，
 	// 对端后续会解出这里的内容，用它确认发起方是谁。
-	aead.Seal(
+	aead.Seal( // 把明文封起来，并盖上“防篡改封条”
 		msg.Static[:0],                     // 输出目标：密文写到 msg.Static
 		ZeroNonce[:],                       // nonce：这里固定使用全 0 nonce
 		device.staticIdentity.publicKey[:], // 明文：我方静态公钥
