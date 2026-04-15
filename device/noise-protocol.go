@@ -283,7 +283,7 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 	defer handshake.mutex.Unlock()
 
 	// create ephemeral key
-	// 这是一轮新握手的起点：先把 transcript（握手上下文） 重置到协议初始值，
+	// 这是一轮新握手的起点：先把 transcript（握手上下文） 重置为协议初始值，
 	// 再生成本轮专用的本地临时密钥。
 	var err error
 	handshake.hash = InitialHash // 握手 transcript 的初始摘要种子
