@@ -698,8 +698,8 @@ func (peer *Peer) BeginSymmetricSession() error {
 	// [构建 Keypair]
 	// 初始化 ChaCha20-Poly1305 实例，从此刻起，数据包就可以被加解密了。
 	keypair := new(Keypair)
-	keypair.send, _ = chacha20poly1305.New(sendKey[:])
-	keypair.receive, _ = chacha20poly1305.New(recvKey[:])
+	keypair.send, _ = chacha20poly1305.New(sendKey[:])    // 我发包时用它加密
+	keypair.receive, _ = chacha20poly1305.New(recvKey[:]) // 我收包时用它解密
 
 	setZero(sendKey[:])
 	setZero(recvKey[:])
