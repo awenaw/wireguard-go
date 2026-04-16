@@ -628,14 +628,14 @@ func (peer *Peer) RoutineSequentialSender(maxBatchSize int) {
 
 			// aw-开荒: 打印发出的加密 UDP 包
 			if len(elem.packet) >= 4 {
-				msgType := binary.LittleEndian.Uint32(elem.packet[:4]) // 字节数组： [1, 0, 0, 0]（低位->高位）
+				msgType := binary.LittleEndian.Uint32(elem.packet[:4])
 				endpointStr := "unknown"
 				if peer.endpoint.val != nil {
 					endpointStr = peer.endpoint.val.DstToString()
 				}
 				var msgDesc string
 				switch msgType {
-				case MessageInitiationType: // 1
+				case MessageInitiationType: // 1 // 字节数组： [1, 0, 0, 0]（低位->高位）
 					msgDesc = "(握手请求)"
 				case MessageResponseType: // 2
 					msgDesc = "(握手响应)"
