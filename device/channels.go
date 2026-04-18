@@ -10,6 +10,14 @@ import (
 	"sync"
 )
 
+// outboundQueue是一个等待加密的QueueOutboundElements的通道。
+// outboundQueue使用其wg字段进行引用计数。
+// 使用newOutboundQueue创建的outboundQueue具有一个引用。
+// 每个额外的编写者必须调用wg.Add(1)。
+// 每个完成的编写者必须调用wg.Done()。
+// 当不再添加更多编写者时，调用wg.Done以删除初始引用。
+// 当引用计数达到0时，队列的通道将被关闭。
+
 // An outboundQueue is a channel of QueueOutboundElements awaiting encryption.
 // An outboundQueue is ref-counted using its wg field.
 // An outboundQueue created with newOutboundQueue has one reference.
