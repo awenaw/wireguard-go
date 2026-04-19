@@ -1,0 +1,27 @@
+ipc 目录定位：负责 WireGuard 的控制面 IPC（进程间通信），也就是外部工具与 wireguard-go 之间的配置/状态通道；它不负责数据包转发的数据面逻辑。
+
+核心作用：
+1. 提供 UAPI 监听入口
+- 外部工具（如 wg、管理程序）通过该入口下发配置、查询状态。
+- 关键入口：uapi_unix.go、uapi_linux.go、uapi_windows.go。
+
+2. 屏蔽平台差异，统一上层调用方式
+- Linux/Unix：使用 Unix Domain Socket。
+- Windows：使用 Named Pipe。
+- wasm：提供哨兵错误码等最小化适配。
+
+3. 处理 IPC 生命周期与异常
+- 包含监听器创建、Accept 循环、关闭、错误传递。
+- Linux 使用 inotify 监听 socket 文件删除，避免僵尸监听或路径失效。
+- BSD 使用 kqueue 监听目录变化。
+
+与整体架构关系：
+- 数据面：device/peer/conn 负责加解密与收发包。
+- 控制面：ipc 负责“谁来改配置、如何连接、跨平台如何统一”。
+
+namedpipe 子目录作用（Windows 专属）：
+- 对命名管道做底层封装，提供类似 net.Listener/net.Conn 的接口。
+- 让上层 UAPI 在 Windows 也能保持与 Unix 类似的使用方式。
+
+一句话总结：
+ipc 是 WireGuard 的管理入口适配层，统一不同平台上的控制通道，使外部管理工具能够稳定地配置和查询设备状态。
