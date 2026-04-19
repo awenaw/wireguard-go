@@ -11,6 +11,8 @@
     "go.buildOnSave": "off",
     "go.lintOnSave": "off",
     "go.vetOnSave": "off",
+    // 隐藏测试文件，减少文件浏览器的视觉干扰
+    // go test 命令仍能找到并执行测试文件
     "files.exclude": {
         "**/*_test.go": true
     }
