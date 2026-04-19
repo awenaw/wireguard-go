@@ -4,6 +4,14 @@
  */
 
 // Package replay implements an efficient anti-replay algorithm as specified in RFC 6479.
+//
+// 该模块位于 WireGuard 的接收路径，负责校验每个入站数据包的计数器：
+// 1) 拒绝重复计数器，防止重放攻击；
+// 2) 拒绝滑动窗口之外的过旧计数器，限制可接受历史范围；
+// 3) 拒绝达到上限的计数器（>= limit），防止非法或越界输入。
+//
+// 实现上采用“位图 + 环形缓冲区”维护滑动窗口状态，
+// 在保持近似 O(1) 判定效率的同时，将内存占用控制在固定范围。
 package replay
 
 type block uint64
