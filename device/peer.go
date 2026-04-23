@@ -76,6 +76,10 @@ type Peer struct {
 // 返回：
 //   - *Peer: 创建的对等体实例
 //   - error: 创建过程中的错误信息
+
+// 他被谁调用？调用他的时机是什么？在调用他之前，系统已经做好了哪些准备？调用他之后，系统会发生什么变化？
+// NewPeer 由 Device.NewPeer 方法调用，通常在用户通过配置添加新的对等体时触发。在调用 NewPeer 之前，系统已经验证了设备的状态（确保设备未关闭）并准备好了必要的资源锁。
+// 调用 NewPeer 后，系统会创建一个新的 Peer 实例，初始化其状态和定时器，并将其添加到设备的对等体映射表中，使其成为设备的一部分，可以开始处理与该对等体的通信。
 func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
 	// 检查设备是否已关闭
 	if device.isClosed() {
