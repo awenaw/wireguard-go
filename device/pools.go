@@ -18,11 +18,17 @@ import (
 //	├── messageBuffers             → 原始字节缓冲区（UDP 收发用的大数组）
 //	├── inboundElements            → 单个入站元素
 //	└── outboundElements           → 单个出站元素
+// ==============================
+// WaitPool：有限对象池（复用 + 上限 + 等待）
+
 type WaitPool struct {
-	pool  sync.Pool
-	cond  sync.Cond
-	lock  sync.Mutex
-	count uint32 // Get calls not yet Put back
+	pool sync.Pool
+	cond sync.Cond
+	lock sync.Mutex
+
+	// 牛鼻子：count 记录“借出去还没归还”的对象数；max 是同时借出的上限。
+	// max == 0 表示不设限，WaitPool 就退化成普通 sync.Pool。
+	count uint32
 	max   uint32
 }
 
@@ -35,6 +41,8 @@ func NewWaitPool(max uint32, new func() any) *WaitPool {
 func (p *WaitPool) Get() any {
 	if p.max != 0 {
 		p.lock.Lock()
+		// 牛鼻子：池子不是“没对象就无限造”，而是借出数到上限就睡眠等待。
+		// 用 for 而不是 if，是为了防止被唤醒后条件已经被别的 goroutine 抢先改变。
 		for p.count >= p.max {
 			p.cond.Wait()
 		}
@@ -51,9 +59,13 @@ func (p *WaitPool) Put(x any) {
 	}
 	p.lock.Lock()
 	defer p.lock.Unlock()
+	// 牛鼻子：Put 必须和 Get 成对出现；归还后释放一个额度，并叫醒一个等待者。
 	p.count--
 	p.cond.Signal()
 }
+
+// ==============================
+// Device 池子初始化：一次性把 5 个池子搭起来
 
 func (device *Device) PopulatePools() {
 	device.pool.inboundElementsContainer = NewWaitPool(PreallocatedBuffersPerPool, func() any {
@@ -75,33 +87,45 @@ func (device *Device) PopulatePools() {
 	})
 }
 
+// ==============================
+// Container 池：复用“一批包”的容器
+
 func (device *Device) GetInboundElementsContainer() *QueueInboundElementsContainer {
 	c := device.pool.inboundElementsContainer.Get().(*QueueInboundElementsContainer)
+	// 容器会复用，锁也要重置成干净状态，避免带着上一次使用的锁状态回来。
 	c.Mutex = sync.Mutex{}
 	return c
 }
 
 func (device *Device) PutInboundElementsContainer(c *QueueInboundElementsContainer) {
 	for i := range c.elems {
-		c.elems[i] = nil // 置空？
+		// 牛鼻子：断开旧元素引用，让 GC 不被复用的 slice 底层数组“拽住”。
+		c.elems[i] = nil
 	}
+	// 长度归零但保留容量，下次可以复用底层数组，少分配。
 	c.elems = c.elems[:0]
 	device.pool.inboundElementsContainer.Put(c)
 }
 
 func (device *Device) GetOutboundElementsContainer() *QueueOutboundElementsContainer {
 	c := device.pool.outboundElementsContainer.Get().(*QueueOutboundElementsContainer)
+	// 容器会复用，锁也要重置成干净状态，避免带着上一次使用的锁状态回来。
 	c.Mutex = sync.Mutex{}
 	return c
 }
 
 func (device *Device) PutOutboundElementsContainer(c *QueueOutboundElementsContainer) {
 	for i := range c.elems {
+		// 牛鼻子：清掉旧指针，避免旧 outbound element 被容器继续引用。
 		c.elems[i] = nil
 	}
+	// 长度归零但保留容量，下次可以复用底层数组，少分配。
 	c.elems = c.elems[:0]
 	device.pool.outboundElementsContainer.Put(c)
 }
+
+// ==============================
+// Message buffer 池：复用 UDP 收发的大字节数组
 
 func (device *Device) GetMessageBuffer() *[MaxMessageSize]byte {
 	return device.pool.messageBuffers.Get().(*[MaxMessageSize]byte)
@@ -110,6 +134,9 @@ func (device *Device) GetMessageBuffer() *[MaxMessageSize]byte {
 func (device *Device) PutMessageBuffer(msg *[MaxMessageSize]byte) {
 	device.pool.messageBuffers.Put(msg)
 }
+
+// ==============================
+// Element 池：复用单个入站/出站队列元素
 
 func (device *Device) GetInboundElement() *QueueInboundElement {
 	return device.pool.inboundElements.Get().(*QueueInboundElement)
