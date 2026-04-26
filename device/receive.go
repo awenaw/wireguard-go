@@ -108,7 +108,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 	// recv 接受数据包，需要提前给容器（bufs）准备好内存
 	for i := range bufsArrs {
 		bufsArrs[i] = device.GetMessageBuffer() // [内存分配] 从 Pool 借 128 个空盘子（前面的bufsArrs的 make 只是开辟了指针空间）
-		bufs[i] = bufsArrs[i][:]
+		bufs[i] = bufsArrs[i][:]                // 切片化
 	}
 
 	defer func() {
@@ -299,7 +299,7 @@ func (device *Device) RoutineReceiveIncoming(maxBatchSize int, recv conn.Receive
 		// [Step 3: Dispatch] 批量派发
 		for peer, elemsContainer := range elemsByPeer { //遍历按 peer 分组的数据包
 			if peer.isRunning.Load() {
-				// [双重投递]
+				// [双重投递]：并行工作，串行交付
 				// 1. peer.queue.inbound: 投递到 Peer 专属队列，
 				//    该 Peer 的后续处理是串行的，因此可维持顺序
 				// 2. device.queue.decryption: 投递到公共解密队列，
