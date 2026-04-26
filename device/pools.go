@@ -26,7 +26,7 @@ type WaitPool struct {
 	cond sync.Cond
 	lock sync.Mutex
 
-	// 牛鼻子：count 记录“借出去还没归还”的对象数；max 是同时借出的上限。
+	// 牛鼻子：count 当前借出的数量；max 允许借出的最大上限
 	// max == 0 表示不设限，WaitPool 就退化成普通 sync.Pool。
 	count uint32
 	max   uint32
