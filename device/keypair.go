@@ -15,6 +15,11 @@ import (
 )
 
 // 作用：加密、解密、防重放、身份标记、诞生时间、本地索引、远端索引
+// Keypair是由会话两段协商派生出来的值，它在两端是相同的，
+// 但相反：握手发起方的 sendKey 是握手响应方的 recvKey，反之亦然。
+// 每个 Keypair 都有一个 localIndex 和 remoteIndex，分别是我分配给对方的 ID 和对方分配给我的 ID。
+// 每次发包时，我把 localIndex 填在包头里，对方收到包后用这个值查表找到这个 Keypair 进行解密处理；
+// 对方发包时把 remoteIndex 填在包头里，我收到包后用这个值查表找到这个 Keypair 进行解密处理。
 
 /* Due to limitations in Go and /x/crypto there is currently
  * no way to ensure that key material is securely ereased in memory.
