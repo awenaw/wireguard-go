@@ -372,6 +372,7 @@ func (device *Device) RoutineDecryption(id int) {
 	}
 }
 
+// 握手包消费者
 /* Handles incoming packets related to handshake
  */
 func (device *Device) RoutineHandshake(id int) {
