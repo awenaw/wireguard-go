@@ -5,6 +5,7 @@
 
 package device
 
+// 批量接受公网 IP 包，将包按 peer 归类后投递到两条通道（一条是多 cpu 解密，一条是保序通道）。解密完成后解锁，保序通道蹲守的使者有序将 ip 包写入内核。
 import (
 	"encoding/base64"
 	"encoding/binary"
