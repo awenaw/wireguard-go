@@ -112,7 +112,7 @@ func (rate *Ratelimiter) Allow(ip netip.Addr) bool {
 	var entry *RatelimiterEntry
 	// lookup entry
 	rate.mu.RLock()
-	entry = rate.table[ip]
+	entry = rate.table[ip] // 查找是否有这个ip的令牌桶
 	rate.mu.RUnlock()
 
 	// make new entry if not found
