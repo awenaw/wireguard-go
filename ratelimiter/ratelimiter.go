@@ -122,6 +122,7 @@ func (rate *Ratelimiter) Allow(ip netip.Addr) bool {
 		entry.lastTime = rate.timeNow()
 		rate.mu.Lock()
 		rate.table[ip] = entry
+		// 如果是第一个ip，则启动垃圾回收goroutine
 		if len(rate.table) == 1 {
 			rate.stopReset <- struct{}{}
 		}
