@@ -3,6 +3,11 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
+// ip 限流器
+// 问题：
+//1、限流变量是哪个？
+//2、tokens 恢复的原理是？
+
 package ratelimiter
 
 import (
