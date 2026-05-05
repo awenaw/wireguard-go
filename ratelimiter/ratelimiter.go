@@ -124,6 +124,7 @@ func (rate *Ratelimiter) Allow(ip netip.Addr) bool {
 	// make new entry if not found
 	if entry == nil {
 		entry = new(RatelimiterEntry)
+		// 1/20*5 - 1/20 = 4/20 意味着初始允许发5个包(4 份是因为排除了进来的那一份)
 		entry.tokens = maxTokens - packetCost
 		entry.lastTime = rate.timeNow()
 		rate.mu.Lock()
