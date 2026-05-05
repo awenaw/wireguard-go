@@ -151,6 +151,7 @@ func (rate *Ratelimiter) Allow(ip netip.Addr) bool {
 	}
 
 	// subtract cost of packet
+	// 第一秒的理论“极限”令牌数是 25 个（5 个存货 + 20 个新生的）。
 	if entry.tokens > packetCost {
 		entry.tokens -= packetCost // 扣除令牌
 		entry.mu.Unlock()
