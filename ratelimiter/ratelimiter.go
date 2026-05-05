@@ -18,11 +18,11 @@ import (
 )
 
 const (
-	packetsPerSecond   = 20
-	packetsBurstable   = 5
-	garbageCollectTime = time.Second
-	packetCost         = 1000000000 / packetsPerSecond
-	maxTokens          = packetCost * packetsBurstable
+	packetsPerSecond   = 20                            // 每秒发包数
+	packetsBurstable   = 5                             // 突发包数
+	garbageCollectTime = time.Second                   // 过期IP回收时间
+	packetCost         = 1000000000 / packetsPerSecond // 按纳秒计量的令牌成本
+	maxTokens          = packetCost * packetsBurstable // 令牌桶最大容量
 )
 
 type RatelimiterEntry struct {
