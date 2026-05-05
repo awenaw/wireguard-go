@@ -139,7 +139,7 @@ func (rate *Ratelimiter) Allow(ip netip.Addr) bool {
 	// add tokens to entry
 	entry.mu.Lock()
 	now := rate.timeNow()
-	entry.tokens += now.Sub(entry.lastTime).Nanoseconds()
+	entry.tokens += now.Sub(entry.lastTime).Nanoseconds() // 延时补充令牌
 	entry.lastTime = now
 	if entry.tokens > maxTokens {
 		entry.tokens = maxTokens
@@ -147,7 +147,7 @@ func (rate *Ratelimiter) Allow(ip netip.Addr) bool {
 
 	// subtract cost of packet
 	if entry.tokens > packetCost {
-		entry.tokens -= packetCost
+		entry.tokens -= packetCost // 扣除令牌
 		entry.mu.Unlock()
 		return true
 	}
