@@ -69,6 +69,7 @@ func (rate *Ratelimiter) Init() {
 	// Start garbage collection routine.
 	go func() {
 		ticker := time.NewTicker(time.Second)
+		// 刚创建出来就立刻关掉。因为此时还没有任何 IP 进来，不需要每秒去检查
 		ticker.Stop()
 		for {
 			select {
@@ -78,7 +79,10 @@ func (rate *Ratelimiter) Init() {
 					return
 				}
 				ticker = time.NewTicker(time.Second)
+			// 每过 1 秒钟，它就会尝试往 ticker.C 这个通道里塞入当前的时间
 			case <-ticker.C:
+				//每当 C 收到信号（过了 1 秒），就跑一次 cleanup()。
+				// 如果发现 cleanup() 返回了 true（意思是：现在 IP 表已经空了），就顺手把定时器再次 Stop() 掉，省电省 CPU。
 				if rate.cleanup() {
 					ticker.Stop()
 				}
