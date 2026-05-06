@@ -97,6 +97,7 @@ func (rate *Ratelimiter) cleanup() (empty bool) {
 
 	for key, entry := range rate.table {
 		entry.mu.Lock()
+		// 如果这个 IP 的最后一次访问时间距离现在已经超过了垃圾回收时间（garbageCollectTime），就把它从表里删掉。
 		if rate.timeNow().Sub(entry.lastTime) > garbageCollectTime {
 			delete(rate.table, key)
 		}
