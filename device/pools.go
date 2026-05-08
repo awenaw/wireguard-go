@@ -13,7 +13,7 @@ import (
 // device.pool
 //
 //	│
-//	├── inboundElementsContainer   → 入站元素容器（一批入站包的集合）
+//	├── inboundElementsContainer   → 入站元素容器（一批入站包的集合）(优势：复用）
 //	├── outboundElementsContainer  → 出站元素容器（一批出站包的集合）
 //	├── messageBuffers             → 原始字节缓冲区（UDP 收发用的大数组）
 //	├── inboundElements            → 单个入站元素
