@@ -77,11 +77,15 @@ func (st *CookieChecker) CheckMAC1(msg []byte) bool {
 	defer st.RUnlock()
 
 	size := len(msg)
-	smac2 := size - blake2s.Size128  // mac2 长度
-	smac1 := smac2 - blake2s.Size128 // mac1 长度
+
+	// MAC1 和 MAC2 都是 16 字节长，位于 msg 的末尾。
+	// mac1 = msg[smac1:smac2]
+	// mac2 = msg[smac2:]
+	smac2 := size - blake2s.Size128  // mac2 在 msg 中的起始位置
+	smac1 := smac2 - blake2s.Size128 // mac1 在 msg 中的起始位置
 
 	var mac1 [blake2s.Size128]byte
-
+	//带密钥的 MAC（参数st.mac1.key[:]是可选密钥）
 	mac, _ := blake2s.New128(st.mac1.key[:])
 	mac.Write(msg[:smac1])
 	mac.Sum(mac1[:0])
