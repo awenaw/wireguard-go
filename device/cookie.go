@@ -72,6 +72,8 @@ func (st *CookieChecker) Init(pk NoisePublicKey) {
 }
 
 // msg 是什么？
+// 带有 MAC1 和 MAC2 的握手请求包的内容。
+// 这个方法会从 msg 中提取出 MAC1 ，并验证它们的正确性。
 func (st *CookieChecker) CheckMAC1(msg []byte) bool {
 	st.RLock()
 	defer st.RUnlock()
