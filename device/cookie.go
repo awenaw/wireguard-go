@@ -15,6 +15,9 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
+// 问题：
+// 1、MAC1 和 MAC2 是怎样生成的？他们在什么时候是必须的？
+
 // 握手时，如果对端设备处于高负载状态，会启动 Cookie 机制来抵御 DoS 攻击。
 // 这个机制分为两部分：
 // 1. CookieChecker：负责验证对端发来的握手请求中的 MAC1 和 MAC2，判断是否需要回复 Cookie。
