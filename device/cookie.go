@@ -71,13 +71,14 @@ func (st *CookieChecker) Init(pk NoisePublicKey) {
 	st.mac2.secretSet = time.Time{}
 }
 
+// msg 是什么？
 func (st *CookieChecker) CheckMAC1(msg []byte) bool {
 	st.RLock()
 	defer st.RUnlock()
 
 	size := len(msg)
-	smac2 := size - blake2s.Size128
-	smac1 := smac2 - blake2s.Size128
+	smac2 := size - blake2s.Size128  // mac2 长度
+	smac1 := smac2 - blake2s.Size128 // mac1 长度
 
 	var mac1 [blake2s.Size128]byte
 
