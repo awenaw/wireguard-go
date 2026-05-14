@@ -147,7 +147,7 @@ func (rate *Ratelimiter) Allow(ip netip.Addr) bool {
 	now := rate.timeNow()
 	entry.tokens += now.Sub(entry.lastTime).Nanoseconds() // 延时补充令牌
 	entry.lastTime = now
-	if entry.tokens > maxTokens {
+	if entry.tokens > maxTokens { // 封顶
 		entry.tokens = maxTokens
 	}
 
