@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-// ip 限流器
+// ip 限流器-限制每个来源 IP 的握手包发送速率
 // 问题：
 //1、限流变量是哪个？（ip维度的限流，限流变量为RatelimiterEntry的 tokens)
 //2、tokens 恢复的原理是？（根据时间差，自动增加令牌）
