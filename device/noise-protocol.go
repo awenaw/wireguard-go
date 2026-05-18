@@ -226,8 +226,8 @@ type Handshake struct {
 }
 
 var (
-	InitialChainKey [blake2s.Size]byte
-	InitialHash     [blake2s.Size]byte
+	InitialChainKey [blake2s.Size]byte // init()初始化
+	InitialHash     [blake2s.Size]byte // init()初始化
 	ZeroNonce       [chacha20poly1305.NonceSize]byte
 )
 
@@ -271,7 +271,7 @@ func init() {
 	mixHash(&InitialHash, &InitialChainKey, []byte(WGIdentifier))
 }
 
-// Initiator 发起握手
+// Initiator 发起握手-构造MessageInitiation包
 // 此时的握手状态是 （handshakeInitiationCreated），生成 MessageInitiation 消息，准备发送给 Responder。
 // 补充理解：这里不会直接发 UDP，而是先把第一条握手消息和本地握手现场准备好。
 func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, error) {
@@ -286,7 +286,7 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 	// 这是一轮新握手的起点：先把 transcript（握手上下文） 重置为协议初始值，
 	// 再生成本轮专用的本地临时密钥。
 	var err error
-	handshake.hash = InitialHash // 握手 transcript 的初始摘要种子
+	handshake.hash = InitialHash // 握手 transcript 的初始摘要种子（InitialHash和InitialChainKey是在init（）中初始化的）
 	handshake.chainKey = InitialChainKey
 	handshake.localEphemeral, err = newPrivateKey() // 生成了本轮 ephemeral private key
 	if err != nil {

@@ -132,7 +132,7 @@ func (peer *Peer) SendHandshakeInitiation(isRetry bool) error {
 	peer.timersAnyAuthenticatedPacketTraversal()
 	peer.timersAnyAuthenticatedPacketSent()
 
-	err = peer.SendBuffers([][]byte{packet})
+	err = peer.SendBuffers([][]byte{packet}) // 这里发送握手包
 	if err != nil {
 		peer.device.log.Errorf("%v - Failed to send handshake initiation: %v", peer, err)
 	}
