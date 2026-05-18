@@ -22,7 +22,7 @@ const (
 	RejectAfterTime         = time.Second * 180
 	KeepaliveTimeout        = time.Second * 10
 	CookieRefreshTime       = time.Second * 120
-	HandshakeInitationRate  = time.Second / 50
+	HandshakeInitationRate  = time.Second / 50 // 两次握手最小间隔 20ms，防 CPU 耗尽的 DoS 洪水攻击
 	PaddingMultiple         = 16
 )
 
