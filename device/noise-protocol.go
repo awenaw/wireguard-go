@@ -405,7 +405,7 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 	}
 	KDF2(&chainKey, &key, chainKey[:], ss[:])
 	aead, _ := chacha20poly1305.New(key[:])
-	_, err = aead.Open(peerPK[:0], ZeroNonce[:], msg.Static[:], hash[:])
+	_, err = aead.Open(peerPK[:0], ZeroNonce[:], msg.Static[:], hash[:]) // 解密I的静态公钥
 	if err != nil {
 		return nil
 	}
@@ -415,7 +415,7 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 
 	peer := device.LookupPeer(peerPK)
 	if peer == nil || !peer.isRunning.Load() {
-		return nil
+		return nil // 静默丢包，防止被探测
 	}
 
 	handshake := &peer.handshake
@@ -449,16 +449,16 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 	replay := !timestamp.After(handshake.lastTimestamp)
 	flood := time.Since(handshake.lastInitiationConsumption) <= HandshakeInitationRate
 	handshake.mutex.RUnlock()
+	// 防重放攻击
 	if replay {
 		device.log.Verbosef("%v - ConsumeMessageInitiation: handshake replay @ %v", peer, timestamp)
 		return nil
 	}
+	// 防拒绝服务攻击
 	if flood {
 		device.log.Verbosef("%v - ConsumeMessageInitiation: handshake flood", peer)
 		return nil
 	}
-
-	// update handshake state
 
 	handshake.mutex.Lock()
 
@@ -473,6 +473,7 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 	if now.After(handshake.lastInitiationConsumption) {
 		handshake.lastInitiationConsumption = now
 	}
+	// 状态机推进到握手已消费
 	handshake.state = handshakeInitiationConsumed
 
 	handshake.mutex.Unlock()
@@ -502,7 +503,7 @@ func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error
 		return nil, err
 	}
 
-	var msg MessageResponse
+	var msg MessageResponse // 握手响应包
 	msg.Type = MessageResponseType
 	msg.Sender = handshake.localIndex
 	msg.Receiver = handshake.remoteIndex
