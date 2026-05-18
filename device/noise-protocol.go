@@ -297,9 +297,15 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 	handshake.mixHash(handshake.remoteStatic[:])
 
 	// 先把第一条握手消息的明文字段搭出来：类型 + 我方临时公钥。
+	// 未显式赋值的字段，Go 自动设为零值（uint32 → 0，[N]byte → 全 0），不是 null。
 	msg := MessageInitiation{
 		Type:      MessageInitiationType,
 		Ephemeral: handshake.localEphemeral.publicKey(),
+		// Sender:    0,       // 零值，后续由 indexTable.NewIndexForHandshake 分配
+		// Static:    [48]byte{}, // 零值全 0，后续由 aead.Seal 写入加密后的静态公钥
+		// Timestamp: [28]byte{}, // 零值全 0，后续由 aead.Seal 写入加密后的时间戳
+		// MAC1:      [16]byte{}, // 零值全 0，后续由 cookie 模块计算
+		// MAC2:      [16]byte{}, // 零值全 0，后续由 cookie 模块计算
 	}
 
 	// 把本轮临时公钥并入 transcript ；后续双方必须按同样顺序推进状态。
