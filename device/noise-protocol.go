@@ -319,6 +319,8 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 	if err != nil {
 		return nil, err
 	}
+
+	//===================================
 	var key [chacha20poly1305.KeySize]byte
 	// 这里把“旧的 chainKey”当作当前链式状态，把“上面那次 sharedSecret(...) 算出来的 ss”当作新材料，
 	// 一起喂给 KDF2，导出两个结果：更新后的 chainKey，以及当前这一步专门拿来加密静态公钥的 key。
@@ -376,6 +378,7 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 	return &msg, nil
 }
 
+// 响应者处理握手发起消息
 func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 	var (
 		hash     [blake2s.Size]byte
@@ -481,7 +484,6 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 }
 
 // 构建响应包
-
 func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error) {
 	handshake := &peer.handshake
 	handshake.mutex.Lock()
