@@ -381,6 +381,18 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 	return &msg, nil
 }
 
+// I：
+// 	handshake.mixHash(handshake.remoteStatic[:])						// R 的静态公钥
+// 	handshake.mixHash(msg.Ephemeral[:])									// I 的临时公钥
+// 	handshake.mixHash(msg.Static[:])     								// 密文（加密的 I 的静态公钥）
+// 	handshake.mixHash(msg.Timestamp[:])  								// 加密的时间戳
+
+// R：
+// 	mixHash(&hash, &InitialHash, device.staticIdentity.publicKey[:]) 	// R 的静态公钥
+// 	mixHash(&hash, &hash, msg.Ephemeral[:])                          	// I 的临时公钥
+// 	mixHash(&hash, &hash, msg.Static[:])								// 密文（加密的 I 的静态公钥）
+// 	mixHash(&hash, &hash, msg.Timestamp[:])								// 加密的时间戳
+
 // 响应者处理握手发起消息
 func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 	var (
