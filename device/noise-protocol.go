@@ -235,11 +235,14 @@ func mixKey(dst, c *[blake2s.Size]byte, data []byte) {
 	KDF1(dst, c[:], data)
 }
 
+// dst: 新的哈希值
+// h:旧的哈希值
+// data: 新加入的数据
 func mixHash(dst, h *[blake2s.Size]byte, data []byte) {
 	hash, _ := blake2s.New256(nil)
-	hash.Write(h[:])
-	hash.Write(data)
-	hash.Sum(dst[:0])
+	hash.Write(h[:])  // 先把旧的哈希值（h）喂给哈希器
+	hash.Write(data)  // 再把新加入的数据（data）喂进去
+	hash.Sum(dst[:0]) // 把最终得到的哈希结果存入 dst
 	hash.Reset()
 }
 
@@ -267,7 +270,7 @@ func (h *Handshake) mixKey(data []byte) {
 // NoiseConstruction
 // WGIdentifier
 func init() {
-	InitialChainKey = blake2s.Sum256([]byte(NoiseConstruction))
+	InitialChainKey = blake2s.Sum256([]byte(NoiseConstruction)) // 值初始化一次，相当于常量
 	mixHash(&InitialHash, &InitialChainKey, []byte(WGIdentifier))
 }
 
@@ -392,9 +395,11 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 	device.staticIdentity.RLock()
 	defer device.staticIdentity.RUnlock()
 
-	mixHash(&hash, &InitialHash, device.staticIdentity.publicKey[:])
-	mixHash(&hash, &hash, msg.Ephemeral[:])
-	mixKey(&chainKey, &InitialChainKey, msg.Ephemeral[:])
+	// &InitialHash 是 指针拷贝，但是不会污染&InitialHash，因为 mixHash 对其是只读读取
+	// hash 开始累计，下面一行代码等价于 I 端的handshake.mixHash(handshake.remoteStatic[:])
+	mixHash(&hash, &InitialHash, device.staticIdentity.publicKey[:]) //hash 累计 StaticPublicKey
+	mixHash(&hash, &hash, msg.Ephemeral[:])                          // hash 累计 EphemeralPublicKey
+	mixKey(&chainKey, &InitialChainKey, msg.Ephemeral[:])            // chainKey 累计 EphemeralPublicKey
 
 	// decrypt static key
 	var peerPK NoisePublicKey
