@@ -399,7 +399,7 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 	// decrypt static key
 	var peerPK NoisePublicKey
 	var key [chacha20poly1305.KeySize]byte
-	ss, err := device.staticIdentity.privateKey.sharedSecret(msg.Ephemeral)
+	ss, err := device.staticIdentity.privateKey.sharedSecret(msg.Ephemeral) // 和发起方的 ss 相同，所以能解密
 	if err != nil {
 		return nil
 	}
